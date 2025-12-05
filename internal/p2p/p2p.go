@@ -1,0 +1,57 @@
+package p2p
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+
+	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
+)
+
+type P2PNode struct {
+	libp2pNode host.Host
+}
+
+func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context) (*P2PNode, error) {
+	lpriv, err := crypto.UnmarshalEd25519PrivateKey(peerPrivKey)
+	if err != nil {
+		return nil, err
+	}
+	host, err := libp2p.New(
+		libp2p.Identity(lpriv),
+		libp2p.EnableAutoNATv2(),
+		libp2p.EnableHolePunching(),
+		libp2p.DisableMetrics(),
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/13000",
+			"/ip6/::/tcp/13000",
+			""),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &P2PNode{libp2pNode: host}, nil
+}
+
+func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
+	//setup discovery using the kademlia DHT
+	kademliaDHT, err := dht.New(ctx, p.libp2pNode)
+	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
+
+	err = kademliaDHT.Bootstrap(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	routingDiscovery := routing.NewRoutingDiscovery(kademliaDHT)
+
+	peers, err := routingDiscovery.FindPeers(ctx, string(key[:]))
+	return peers, nil
+}
