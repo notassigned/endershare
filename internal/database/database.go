@@ -1,6 +1,7 @@
 package database
 
 import (
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/base64"
 	"log"
@@ -62,6 +63,18 @@ func (db *EndershareDB) SetNodeProperty(key string, value string) error {
 func (db *EndershareDB) DeleteNodeProperty(key string) error {
 	_, err := db.db.Exec("DELETE FROM node WHERE key = ?", key)
 	return err
+}
+
+func (db *EndershareDB) GetMasterPubKey() (ed25519.PublicKey, error) {
+	key, err := db.GetNodeProperty("master_public_key")
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(key)
+	if err != nil {
+		return nil, err
+	}
+	return ed25519.PublicKey(decoded), nil
 }
 
 func (db *EndershareDB) GetKeys() *crypto.CryptoKeys {

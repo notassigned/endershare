@@ -18,6 +18,8 @@ func main() {
 	switch command {
 	case "server":
 		core.ServerMain()
+	case "client":
+		core.ClientMain()
 	default:
 		return
 	}
