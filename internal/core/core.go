@@ -9,21 +9,7 @@ import (
 	"github.com/notassigned/endershare/internal/p2p"
 )
 
-type FileNode struct {
-	ID      string
-	Name    string
-	Size    int64
-	Content []byte
-}
-
-type FolderNode struct {
-	ID      string
-	Name    string
-	Size    int64
-	Content []byte
-}
-
-func main() {
+func ClientMain() {
 	//check for keys in db
 	db := database.Create()
 
@@ -49,4 +35,32 @@ func main() {
 
 	//start sync loop, check for newer updates from remote
 	//enable publishing after update check
+}
+
+func ServerMain() {
+	db := database.Create()
+
+	//only the peer key will be used for p2p identity
+	//the master public key will be filled in later once linked to a client
+	keys := db.GetKeys()
+	if keys == nil {
+		keys, _ = crypto.CreateCryptoKeys()
+		db.StoreKeys(keys)
+		db.DeleteNodeProperty("master_public_key")
+		db.DeleteNodeProperty("master_private_key")
+	}
+
+	//read in sync phrase from user
+
+	var syncPhrase string
+	fmt.Print("Enter sync phrase: ")
+	fmt.Scanln(&syncPhrase)
+
+	p2pNode, err := p2p.StartP2PNode(keys.PeerPrivateKey, context.Background())
+	if err != nil {
+		fmt.Println("Error starting P2P node:", err)
+		return
+	}
+
+	p2pNode.EnableRoutingDiscovery(context.Background(), syncPhrase)
 }

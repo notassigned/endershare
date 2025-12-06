@@ -42,6 +42,9 @@ func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context) (*P2PNode
 func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
 	//setup discovery using the kademlia DHT
 	kademliaDHT, err := dht.New(ctx, p.libp2pNode)
+	if err != nil {
+		return nil, err
+	}
 	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
 
 	err = kademliaDHT.Bootstrap(ctx)
@@ -53,5 +56,9 @@ func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string)
 	routingDiscovery := routing.NewRoutingDiscovery(kademliaDHT)
 
 	peers, err := routingDiscovery.FindPeers(ctx, string(key[:]))
+	if err != nil {
+		return nil, err
+	}
+
 	return peers, nil
 }
