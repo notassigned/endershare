@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/tyler-smith/go-bip39"
+	"golang.org/x/crypto/scrypt"
 )
 
 type ClientInfoMsg struct {
@@ -31,6 +31,14 @@ type ClientInfo struct {
 	PeerSignature   []byte
 }
 
+type challengeResponse struct {
+	Result []byte
+	Salt   []byte
+}
+
+// The client and server mutually verify knowledge of the sync phrase
+// Each sends each other a random challenge that must be hashed with the sync phrase
+
 func BindNewClient(node P2PNode) (*ClientInfo, error) {
 	syncPhrase := newMnemonic(4)
 	//create mutex to rate limit this service and prevent brute forcing
@@ -43,54 +51,25 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 		defer s.Close()
 		time.Sleep(time.Millisecond * 250)
 
-		//create challenge
-		randomBytes := make([]byte, 32)
-		_, err := rand.Read(randomBytes)
-		if err != nil {
-			return
-		}
-		challenge := hex.EncodeToString(randomBytes)
-		expectedProof := sha256.Sum256([]byte(syncPhrase + challenge))
-
-		//send challenge
-		s.Write([]byte(challenge))
-
-		//expect back a hex sha256 of (syncPhrase + challenge)
-		theirResponse := make([]byte, 64)
-		_, err = s.Read(theirResponse)
-		if err != nil {
-			fmt.Println("Error reading from stream:", err)
-			return
-		}
-		theirProof, err := hex.DecodeString(string(theirResponse))
-		if err != nil {
-			return
-		}
-
-		if !bytes.Equal(expectedProof[:], theirProof) {
-			fmt.Println("Client failed verification")
-			return
-		}
-
-		fmt.Println("Client verified")
-		//allocate a buffer and read stream until closed
-		buf := new(bytes.Buffer)
-		_, err = buf.ReadFrom(s)
-		if err != nil {
-			fmt.Println("Error reading client info:", err)
-			return
-		}
-
-		//parse client info
-		var clientInfoMsg ClientInfoMsg
-		err = json.Unmarshal(buf.Bytes(), &clientInfo)
-		if err != nil {
-			fmt.Println("Error unmarshaling client info:", err)
-			return
-		}
-		c, err := ClientInfoMsgToClientInfo(clientInfoMsg)
-		if err == nil {
-			clientInfo <- c
+		verifiedPeer, err := mutualVerification(s, syncPhrase)
+		if err == nil && verifiedPeer {
+			c := &ClientInfoMsg{}
+			buf := new(bytes.Buffer)
+			_, err = buf.ReadFrom(s)
+			if err != nil {
+				fmt.Println("Error reading client info:", err)
+			}
+			err = json.Unmarshal(buf.Bytes(), c)
+			if err != nil {
+				fmt.Println("Error unmarshaling client info:", err)
+				return
+			}
+			info, err := clientInfoMsgToClientInfo(c)
+			if err != nil {
+				fmt.Println("Error converting client info message:", err)
+				return
+			}
+			clientInfo <- info
 		}
 	})
 
@@ -105,9 +84,10 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 	}
 }
 
-// BindNewServer mutually verifies that the client and server both know the sync phrase
-// We verify the server knows the phrase by checking that challenge = sha256(syncPhrase + peerID)
-func BindNewServer(syncPhrase string, node P2PNode) (*peer.AddrInfo, error) {
+// BindNewServer searches for the server and verifies it knows the sync phrase
+// Once it finds the new server, it sends the master public key
+// TODO: add context with timeout
+func BindNewServer(syncPhrase string, node P2PNode, masterPubKey ed25519.PublicKey) (*peer.AddrInfo, error) {
 	ctx := context.Background()
 	nodes, err := node.EnableRoutingDiscovery(ctx, syncPhrase)
 
@@ -126,24 +106,105 @@ func BindNewServer(syncPhrase string, node P2PNode) (*peer.AddrInfo, error) {
 			fmt.Println("Error creating stream to peer:", err)
 			continue
 		}
-
-		//read challenge
-		challenge := make([]byte, 64)
-		_, err = stream.Read(challenge)
+		verifiedPeer, err := mutualVerification(stream, syncPhrase)
 		if err != nil {
-			fmt.Println("Error reading from stream:", err)
+			fmt.Println("Error during mutual verification:", err)
 			continue
 		}
-		ourProof := sha256.Sum256([]byte(syncPhrase + string(challenge)))
-		stream.Write(ourProof[:])
-		//todo: verify server
+		if verifiedPeer {
+			fmt.Println("Successfully bound to server:", peerInfo.ID)
+			//send the master public key to the server
+			c := &ClientInfoMsg{
+				MasterPublicKeyBase64: hex.EncodeToString(masterPubKey),
+			}
+			jsonData, err := json.Marshal(c)
+			if err != nil {
+				fmt.Println("Error marshaling client info:", err)
+				continue
+			}
+			_, err = stream.Write(jsonData)
+			if err != nil {
+				fmt.Println("Error sending client info to server:", err)
+				continue
+			}
+			return &peerInfo, nil
+		}
 
-		return &peerInfo, nil
 	}
 	return nil, fmt.Errorf("no peers found")
 }
 
-func ClientInfoMsgToClientInfo(msg ClientInfoMsg) (*ClientInfo, error) {
+func mutualVerification(stream network.Stream, syncPhrase string) (result bool, err error) {
+	result = false
+	ourChallenge := [32]byte{}
+	_, err = rand.Read(ourChallenge[:])
+	if err != nil {
+		fmt.Println("Error creating challenge:", err)
+		return
+	}
+
+	//send our challenge
+	_, err = stream.Write(ourChallenge[:])
+	if err != nil {
+		fmt.Println("Error writing challenge to stream:", err)
+		return
+	}
+
+	//read challenge
+	challenge := [32]byte{}
+	_, err = stream.Read(challenge[:])
+	if err != nil {
+		fmt.Println("Error reading from stream:", err)
+		return
+	}
+	ourResponse, err := solveChallenge(syncPhrase, challenge)
+	if err != nil {
+		fmt.Println("Error solving challenge:", err)
+		return
+	}
+	resp, err := json.Marshal(ourResponse)
+	if err != nil {
+		return
+	}
+	stream.Write(resp)
+
+	peerRespBytes := make([]byte, 1024)
+	_, err = stream.Read(peerRespBytes)
+	if err != nil {
+		return
+	}
+	//unmarshal peer response
+	var peerResp challengeResponse
+	err = json.Unmarshal(peerRespBytes, &peerResp)
+	if err != nil {
+		return
+	}
+
+	return verifyChallengeResponse(syncPhrase, ourChallenge, peerResp), nil
+}
+
+func solveChallenge(syncPhrase string, challenge [32]byte) (challengeResponse, error) {
+	salt := [32]byte{}
+	_, err := rand.Read(salt[:])
+	if err != nil {
+		return challengeResponse{}, err
+	}
+	key, err := scrypt.Key(append([]byte(syncPhrase), challenge[:]...), salt[:], 32768, 8, 1, 32)
+	return challengeResponse{
+		Result: key,
+		Salt:   salt[:],
+	}, nil
+}
+
+func verifyChallengeResponse(syncPhrase string, challenge [32]byte, response challengeResponse) bool {
+	key, err := scrypt.Key(append([]byte(syncPhrase), challenge[:]...), response.Salt, 32768, 8, 1, 32)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(key, response.Result)
+}
+
+func clientInfoMsgToClientInfo(msg *ClientInfoMsg) (*ClientInfo, error) {
 	masterPubKeyBytes, err := hex.DecodeString(msg.MasterPublicKeyBase64)
 	if err != nil {
 		return nil, err
@@ -166,7 +227,7 @@ func ClientInfoMsgToClientInfo(msg ClientInfoMsg) (*ClientInfo, error) {
 func newMnemonic(numWords int) string {
 	wordList := bip39.GetWordList()
 	words := make([]string, numWords)
-	for i := 0; i < numWords; i++ {
+	for i := range numWords {
 		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(wordList))))
 		words[i] = wordList[n.Int64()]
 	}
