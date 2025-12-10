@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	"github.com/notassigned/endershare/internal/crypto"
@@ -18,7 +19,6 @@ func ServerMain() {
 	if keys == nil {
 		keys, _ = crypto.CreateCryptoKeys()
 		db.StoreKeys(keys)
-		db.DeleteNodeProperty("master_private_key")
 	}
 
 	p2pNode, err := p2p.StartP2PNode(keys.PeerPrivateKey, context.Background())
@@ -28,7 +28,7 @@ func ServerMain() {
 	}
 
 	if !boundToClient(db) {
-		//bind to client
+		bindToClient(db, p2pNode)
 	}
 	//read in sync phrase from user
 
@@ -37,6 +37,18 @@ func ServerMain() {
 	fmt.Scanln(&syncPhrase)
 
 	p2pNode.EnableRoutingDiscovery(context.Background(), syncPhrase)
+}
+
+func bindToClient(db *database.EndershareDB, p2pNode *p2p.P2PNode) {
+	client, err := p2p.BindNewClient(*p2pNode)
+	if err != nil {
+		panic(fmt.Sprintf("Error binding to client: %v", err))
+	}
+	err = db.SetNodeProperty("master_public_key", base64.StdEncoding.EncodeToString(client.MasterPublicKey))
+	if err != nil {
+		panic(fmt.Sprintf("Error storing master public key: %v", err))
+	}
+
 }
 
 func boundToClient(db *database.EndershareDB) bool {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/tyler-smith/go-bip39"
 	"golang.org/x/crypto/scrypt"
+	"lukechampine.com/blake3"
 )
 
 type CryptoKeys struct {
@@ -68,7 +69,7 @@ func SetupKeysFromMnemonic(mnemonic string) *CryptoKeys {
 	peerSignature := ed25519.Sign(priv, peerPub)
 
 	//generate encryption key
-	AESKey := sha256.Sum256(append([]byte("endershare-aes"), []byte(mnemonic)...))
+	AESKey := sha256.Sum256(key)
 
 	return &CryptoKeys{
 		MasterPrivateKey: priv,
@@ -78,4 +79,9 @@ func SetupKeysFromMnemonic(mnemonic string) *CryptoKeys {
 		PeerSignature:    peerSignature,
 		AESKey:           AESKey[:],
 	}
+}
+
+func ComputeDataHash(data []byte) []byte {
+	h := blake3.New(len(data), data)
+	return h.Sum(nil)
 }

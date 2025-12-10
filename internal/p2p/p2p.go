@@ -4,13 +4,16 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
+	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 )
 
 type P2PNode struct {
@@ -26,10 +29,13 @@ func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context) (*P2PNode
 		libp2p.Identity(lpriv),
 		libp2p.EnableAutoNATv2(),
 		libp2p.EnableHolePunching(),
+		libp2p.EnableRelayService(),
 		libp2p.DisableMetrics(),
+		libp2p.Security(libp2ptls.ID, libp2ptls.New),
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/13000",
 			"/ip6/::/tcp/13000",
-			""),
+			"/ip4/0.0.0.0/udp/13000/quic",
+			"/ip6/::/udp/13000/quic"),
 	)
 
 	if err != nil {
@@ -55,7 +61,7 @@ func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string)
 
 	routingDiscovery := routing.NewRoutingDiscovery(kademliaDHT)
 
-	peers, err := routingDiscovery.FindPeers(ctx, string(key[:]))
+	peers, err := routingDiscovery.FindPeers(ctx, string(key[:]), discovery.TTL(time.Hour))
 	if err != nil {
 		return nil, err
 	}

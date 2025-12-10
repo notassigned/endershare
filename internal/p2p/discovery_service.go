@@ -169,6 +169,8 @@ func mutualVerification(stream network.Stream, syncPhrase string) (result bool, 
 	stream.Write(resp)
 
 	peerRespBytes := make([]byte, 1024)
+	//read from the stream into peerRespBytes or time out after 1 minute
+	stream.SetReadDeadline(time.Now().Add(time.Minute))
 	_, err = stream.Read(peerRespBytes)
 	if err != nil {
 		return
@@ -193,7 +195,7 @@ func solveChallenge(syncPhrase string, challenge [32]byte) (challengeResponse, e
 	return challengeResponse{
 		Result: key,
 		Salt:   salt[:],
-	}, nil
+	}, err
 }
 
 func verifyChallengeResponse(syncPhrase string, challenge [32]byte, response challengeResponse) bool {
