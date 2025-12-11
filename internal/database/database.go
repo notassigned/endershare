@@ -1,23 +1,12 @@
 package database
 
 import (
-	"crypto/ed25519"
 	"database/sql"
-	"encoding/base64"
 	"log"
-
-	"github.com/notassigned/endershare/internal/crypto"
-	"lukechampine.com/blake3"
 )
 
 type EndershareDB struct {
 	db *sql.DB
-}
-
-type DataEntry struct {
-	Key   []byte
-	Value []byte
-	Hash  []byte
 }
 
 // The node table stores key-value pairs for this node
@@ -40,152 +29,11 @@ func Create() *EndershareDB {
     )
 	CREATE TABLE IF NOT EXISTS peers (
 		id TEXT PRIMARY KEY,
-		addrs TEXT NOT NULL
+		addrs TEXT NOT NULL,
+		signature BLOB NOT NULL
 	`
 	if _, err := db.Exec(createTables); err != nil {
 		log.Fatal(err)
 	}
 	return &EndershareDB{db: db}
-}
-
-func (db *EndershareDB) PutData(key []byte, value []byte) error {
-	hash := crypto.ComputeDataHash(append(key, value...))
-	_, err := db.db.Exec("INSERT OR REPLACE INTO data (key, value, hash) VALUES (?, ?, ?)", key, value, hash)
-	return err
-}
-
-func (db *EndershareDB) GetData(key []byte) ([]byte, error) {
-	rows, err := db.db.Query("SELECT value FROM data WHERE key = ?", key)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var value []byte
-	if rows.Next() {
-		if err := rows.Scan(&value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	}
-	return nil, sql.ErrNoRows
-}
-
-func (db *EndershareDB) DeleteData(key []byte) error {
-	_, err := db.db.Exec("DELETE FROM data WHERE key = ?", key)
-	return err
-}
-
-func (db *EndershareDB) GetDataHash() ([]byte, error) {
-	rows, err := db.db.Query("SELECT hash FROM data ORDER BY hash")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	h := blake3.New(32, nil)
-	h.Write([]byte{1})
-
-	for rows.Next() {
-		var hash []byte
-		if err := rows.Scan(&hash); err != nil {
-			return nil, err
-		}
-		h.Write(hash)
-	}
-	return h.Sum(nil), nil
-}
-
-func (db *EndershareDB) GetNodeProperty(key string) (string, error) {
-	rows, err := db.db.Query("SELECT value FROM node WHERE key = ?", key)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var value string
-	if rows.Next() {
-		if err := rows.Scan(&value); err != nil {
-			return "", err
-		}
-		return value, nil
-	}
-	return "", sql.ErrNoRows
-}
-
-func (db *EndershareDB) SetNodeProperty(key string, value string) error {
-	_, err := db.db.Exec("INSERT OR REPLACE INTO node (key, value) VALUES (?, ?)", key, value)
-	return err
-}
-
-func (db *EndershareDB) DeleteNodeProperty(key string) error {
-	_, err := db.db.Exec("DELETE FROM node WHERE key = ?", key)
-	return err
-}
-
-func (db *EndershareDB) GetMasterPubKey() (ed25519.PublicKey, error) {
-	key, err := db.GetNodeProperty("master_public_key")
-	if err != nil {
-		return nil, err
-	}
-	decoded, err := base64.StdEncoding.DecodeString(key)
-	if err != nil {
-		return nil, err
-	}
-	return ed25519.PublicKey(decoded), nil
-}
-
-func (db *EndershareDB) GetKeys() *crypto.CryptoKeys {
-	rows, err := db.db.Query("SELECT key, value FROM node WHERE key IN ('master_private_key', 'peer_private_key', 'aes_key')")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer rows.Close()
-
-	keys := make(map[string]string)
-	count := 0
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			log.Fatal(err)
-		}
-		keys[key] = value
-		count++
-	}
-
-	if count < 3 {
-		return nil
-	}
-
-	mpriv, err := base64.StdEncoding.DecodeString(keys["master_private_key"])
-	if err != nil {
-		log.Fatal(err)
-	}
-	ppriv, err := base64.StdEncoding.DecodeString(keys["peer_private_key"])
-	if err != nil {
-		log.Fatal(err)
-	}
-	aesKey, err := base64.StdEncoding.DecodeString(keys["aes_key"])
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return crypto.NewCryptoKeysFromBytes(mpriv, ppriv, aesKey)
-}
-
-func (db *EndershareDB) StoreKeys(keys *crypto.CryptoKeys) {
-	masterPrivEnc := base64.StdEncoding.EncodeToString(keys.MasterPrivateKey)
-	peerPrivEnc := base64.StdEncoding.EncodeToString(keys.PeerPrivateKey)
-	aesKeyEnc := base64.StdEncoding.EncodeToString(keys.AESKey)
-
-	insertStmt := `
-	INSERT OR REPLACE INTO node (key, value) VALUES
-		('master_private_key', ?),
-		('peer_private_key', ?),
-		('aes_key', ?);
-	`
-	_, err := db.db.Exec(insertStmt, masterPrivEnc, peerPrivEnc, aesKeyEnc)
-	if err != nil {
-		log.Fatal(err)
-	}
 }

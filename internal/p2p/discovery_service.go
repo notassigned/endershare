@@ -45,7 +45,7 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 	var mutex sync.Mutex
 	clientInfo := make(chan *ClientInfo, 1)
 
-	node.libp2pNode.SetStreamHandler("/endershare/bind/1.0", func(s network.Stream) {
+	node.host.SetStreamHandler("/endershare/bind/1.0", func(s network.Stream) {
 		mutex.Lock()
 		defer mutex.Unlock()
 		defer s.Close()
@@ -96,12 +96,12 @@ func BindNewServer(syncPhrase string, node P2PNode, masterPubKey ed25519.PublicK
 	}
 	for peerInfo := range nodes {
 		fmt.Println("Found peer", peerInfo.ID)
-		err := node.libp2pNode.Connect(ctx, peerInfo)
+		err := node.host.Connect(ctx, peerInfo)
 		if err != nil {
 			fmt.Println("Error connecting to peer:", err)
 			continue
 		}
-		stream, err := node.libp2pNode.NewStream(ctx, peerInfo.ID, "/endershare/bind/1.0")
+		stream, err := node.host.NewStream(ctx, peerInfo.ID, "/endershare/bind/1.0")
 		if err != nil {
 			fmt.Println("Error creating stream to peer:", err)
 			continue

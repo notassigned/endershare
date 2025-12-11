@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"fmt"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	gossipsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -17,10 +19,12 @@ import (
 )
 
 type P2PNode struct {
-	libp2pNode host.Host
+	host        host.Host
+	notifyTopic *gossipsub.Topic
+	peers       map[peer.ID]peer.AddrInfo
 }
 
-func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context) (*P2PNode, error) {
+func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []peer.AddrInfo) (*P2PNode, error) {
 	lpriv, err := crypto.UnmarshalEd25519PrivateKey(peerPrivKey)
 	if err != nil {
 		return nil, err
@@ -42,12 +46,25 @@ func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context) (*P2PNode
 		return nil, err
 	}
 
-	return &P2PNode{libp2pNode: host}, nil
+	n := &P2PNode{
+		host:  host,
+		peers: make(map[peer.ID]peer.AddrInfo),
+	}
+
+	for _, p := range peers {
+		n.peers[p.ID] = p
+	}
+
+	return n, nil
+}
+
+func (p *P2PNode) AddPeer(addrInfo peer.AddrInfo) {
+	p.peers[addrInfo.ID] = addrInfo
 }
 
 func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
 	//setup discovery using the kademlia DHT
-	kademliaDHT, err := dht.New(ctx, p.libp2pNode)
+	kademliaDHT, err := dht.New(ctx, p.host)
 	if err != nil {
 		return nil, err
 	}
@@ -67,4 +84,26 @@ func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string)
 	}
 
 	return peers, nil
+}
+
+func (p *P2PNode) ManageConnections(ctx context.Context, key string) {
+	peers, err := p.EnableRoutingDiscovery(ctx, key)
+	if err != nil {
+		fmt.Println("Error enabling discovery:", err)
+	}
+	for {
+		select {
+		case peer := <-peers:
+			if p.checkPeerAllowed(peer.ID) {
+				p.host.Connect(ctx, peer)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (p *P2PNode) checkPeerAllowed(peerID peer.ID) bool {
+	_, exists := p.peers[peerID]
+	return exists
 }
