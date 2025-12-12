@@ -19,6 +19,8 @@ import (
 	"golang.org/x/crypto/scrypt"
 )
 
+const bindProtocolID = "/endershare/bind/1.0"
+
 type ClientInfoMsg struct {
 	MasterPublicKeyBase64 string
 	PeerID                string
@@ -41,11 +43,14 @@ type challengeResponse struct {
 
 func BindNewClient(node P2PNode) (*ClientInfo, error) {
 	syncPhrase := newMnemonic(4)
+	ctx, cancelAdvert := context.WithCancel(context.Background())
+	defer cancelAdvert()
+	node.Advertize(ctx, syncPhrase)
 	//create mutex to rate limit this service and prevent brute forcing
 	var mutex sync.Mutex
 	clientInfo := make(chan *ClientInfo, 1)
 
-	node.host.SetStreamHandler("/endershare/bind/1.0", func(s network.Stream) {
+	node.host.SetStreamHandler(bindProtocolID, func(s network.Stream) {
 		mutex.Lock()
 		defer mutex.Unlock()
 		defer s.Close()
@@ -69,6 +74,7 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 				fmt.Println("Error converting client info message:", err)
 				return
 			}
+
 			clientInfo <- info
 		}
 	})
@@ -76,6 +82,7 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 	//wait for client to connec, time out after 1 hour
 	fmt.Println("Waiting for client to bind with sync phrase:", syncPhrase)
 	timeout := time.After(time.Hour)
+	defer node.host.RemoveStreamHandler(bindProtocolID)
 	select {
 	case info := <-clientInfo:
 		return info, nil
@@ -85,15 +92,17 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 }
 
 // BindNewServer searches for the server and verifies it knows the sync phrase
-// Once it finds the new server, it sends the master public key
+// Once it finds the new server, it sends the master public key for the server to bind to
 // TODO: add context with timeout
 func BindNewServer(syncPhrase string, node P2PNode, masterPubKey ed25519.PublicKey) (*peer.AddrInfo, error) {
-	ctx := context.Background()
-	nodes, err := node.EnableRoutingDiscovery(ctx, syncPhrase)
+	ctx, cancelDiscover := context.WithCancel(context.Background())
+	defer cancelDiscover()
 
+	nodes, err := node.DiscoverPeers(ctx, syncPhrase)
 	if err != nil {
 		return nil, err
 	}
+
 	for peerInfo := range nodes {
 		fmt.Println("Found peer", peerInfo.ID)
 		err := node.host.Connect(ctx, peerInfo)
@@ -152,6 +161,7 @@ func mutualVerification(stream network.Stream, syncPhrase string) (result bool, 
 
 	//read challenge
 	challenge := [32]byte{}
+	stream.SetReadDeadline(time.Now().Add(time.Second * 30))
 	_, err = stream.Read(challenge[:])
 	if err != nil {
 		fmt.Println("Error reading from stream:", err)
@@ -169,8 +179,6 @@ func mutualVerification(stream network.Stream, syncPhrase string) (result bool, 
 	stream.Write(resp)
 
 	peerRespBytes := make([]byte, 1024)
-	//read from the stream into peerRespBytes or time out after 1 minute
-	stream.SetReadDeadline(time.Now().Add(time.Minute))
 	_, err = stream.Read(peerRespBytes)
 	if err != nil {
 		return

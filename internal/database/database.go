@@ -3,6 +3,8 @@ package database
 import (
 	"database/sql"
 	"log"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type EndershareDB struct {
@@ -26,11 +28,12 @@ func Create() *EndershareDB {
     	key BLOB PRIMARY KEY,
      	value BLOB NOT NULL,
 		hash BLOB NOT NULL
-    )
+    );
 	CREATE TABLE IF NOT EXISTS peers (
 		id TEXT PRIMARY KEY,
 		addrs TEXT NOT NULL,
 		signature BLOB NOT NULL
+	);
 	`
 	if _, err := db.Exec(createTables); err != nil {
 		log.Fatal(err)

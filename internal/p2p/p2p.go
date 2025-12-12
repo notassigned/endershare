@@ -22,6 +22,8 @@ type P2PNode struct {
 	host        host.Host
 	notifyTopic *gossipsub.Topic
 	peers       map[peer.ID]peer.AddrInfo
+	dht         *dht.IpfsDHT
+	discovery   *routing.RoutingDiscovery
 }
 
 func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []peer.AddrInfo) (*P2PNode, error) {
@@ -55,6 +57,11 @@ func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []p
 		n.peers[p.ID] = p
 	}
 
+	err = n.setupDiscovery(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return n, nil
 }
 
@@ -62,23 +69,31 @@ func (p *P2PNode) AddPeer(addrInfo peer.AddrInfo) {
 	p.peers[addrInfo.ID] = addrInfo
 }
 
-func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
+func (p *P2PNode) setupDiscovery(ctx context.Context) error {
 	//setup discovery using the kademlia DHT
 	kademliaDHT, err := dht.New(ctx, p.host)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
 
 	err = kademliaDHT.Bootstrap(ctx)
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	routingDiscovery := routing.NewRoutingDiscovery(kademliaDHT)
 
-	peers, err := routingDiscovery.FindPeers(ctx, string(key[:]), discovery.TTL(time.Hour))
+	p.dht = kademliaDHT
+	p.discovery = routingDiscovery
+
+	return nil
+}
+
+func (p *P2PNode) DiscoverPeers(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
+	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
+
+	peers, err := p.discovery.FindPeers(ctx, string(key[:]), discovery.TTL(time.Hour))
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +101,19 @@ func (p *P2PNode) EnableRoutingDiscovery(ctx context.Context, rendesvous string)
 	return peers, nil
 }
 
+func (p *P2PNode) Advertize(ctx context.Context, rendesvous string) error {
+	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
+	_, err := p.discovery.Advertise(ctx, string(key[:]), discovery.TTL(time.Hour))
+	return err
+}
+
 func (p *P2PNode) ManageConnections(ctx context.Context, key string) {
-	peers, err := p.EnableRoutingDiscovery(ctx, key)
+	// Advertize ourselves
+	err := p.Advertize(ctx, key)
+	if err != nil {
+		fmt.Println("Error advertising:", err)
+	}
+	peers, err := p.DiscoverPeers(ctx, key)
 	if err != nil {
 		fmt.Println("Error enabling discovery:", err)
 	}
