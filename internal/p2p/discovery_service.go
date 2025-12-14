@@ -69,6 +69,7 @@ func BindToClient(node *P2PNode) (*ClientInfo, error) {
 			_, err = buf.ReadFrom(s)
 			if err != nil {
 				fmt.Println("Error reading client info:", err)
+				return
 			}
 			err = json.Unmarshal(buf.Bytes(), c)
 			if err != nil {
@@ -127,6 +128,7 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 		verifiedPeer, err := mutualVerification(stream, syncPhrase)
 		if err != nil {
 			fmt.Println("Error during mutual verification:", err)
+			stream.Close()
 			continue
 		}
 		if verifiedPeer {
@@ -140,13 +142,16 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 			jsonData, err := json.Marshal(c)
 			if err != nil {
 				fmt.Println("Error marshaling client info:", err)
+				stream.Close()
 				continue
 			}
 			_, err = stream.Write(jsonData)
+			stream.Close()
 			if err != nil {
 				fmt.Println("Error sending client info to server:", err)
 				continue
 			}
+
 			return &peerInfo, nil
 		}
 
