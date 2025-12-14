@@ -13,20 +13,26 @@ func ServerMain() {
 	core := coreStartup()
 
 	if getMasterPubKey(core.db) == nil {
-		bindToClient(core.db, core.p2pNode)
+		core.bindToClient()
 	}
 }
 
-func bindToClient(db *database.EndershareDB, p2pNode *p2p.P2PNode) {
-	client, err := p2p.BindNewClient(*p2pNode)
+func (core *Core) bindToClient() {
+	client, err := p2p.BindNewClient(core.p2pNode)
 	if err != nil {
 		panic(fmt.Sprintf("Error binding to client: %v", err))
 	}
-	err = db.SetNodeProperty("master_public_key", base64.StdEncoding.EncodeToString(client.MasterPublicKey))
+	err = core.db.SetNodeProperty("master_public_key", base64.StdEncoding.EncodeToString(client.MasterPublicKey))
 	if err != nil {
 		panic(fmt.Sprintf("Error storing master public key: %v", err))
 	}
+	err = core.db.AddPeer(client.AddrInfo)
+	if err != nil {
+		panic(fmt.Sprintf("Error adding peer: %v", err))
+	}
 
+	core.keys.MasterPublicKey = client.MasterPublicKey
+	fmt.Println("Successfully bound to client:", client.PeerID)
 }
 
 func getMasterPubKey(db *database.EndershareDB) ed25519.PublicKey {

@@ -25,6 +25,9 @@ func ClientMain(bind bool) {
 		fmt.Scanln(&syncPhrase)
 		c.bindNewServer(syncPhrase)
 	}
+
+	go c.p2pNode.ManageConnections(context.Background(), string(c.keys.MasterPublicKey))
+
 	// Wait indefinitely
 	select {}
 }
@@ -60,6 +63,6 @@ func coreStartup() *Core {
 
 	core.p2pNode = p2pNode
 	core.keys = keys
-	go p2pNode.ManageConnections(ctx, string(keys.MasterPublicKey))
+
 	return core
 }

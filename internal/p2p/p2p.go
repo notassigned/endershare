@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -82,6 +83,20 @@ func (p *P2PNode) setupDiscovery(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	var wg sync.WaitGroup
+	for _, peerAddr := range dht.DefaultBootstrapPeers {
+		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.host.Connect(ctx, *peerinfo); err != nil {
+				fmt.Println("Bootstrap warning:", err)
+			}
+		}()
+	}
+
+	wg.Wait()
 
 	routingDiscovery := routing.NewRoutingDiscovery(kademliaDHT)
 

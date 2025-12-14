@@ -15,6 +15,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/tyler-smith/go-bip39"
 	"golang.org/x/crypto/scrypt"
 )
@@ -31,6 +32,7 @@ type ClientInfo struct {
 	MasterPublicKey ed25519.PublicKey
 	PeerID          peer.ID
 	PeerSignature   []byte
+	AddrInfo        peer.AddrInfo
 }
 
 type challengeResponse struct {
@@ -41,7 +43,7 @@ type challengeResponse struct {
 // The client and server mutually verify knowledge of the sync phrase
 // Each sends each other a random challenge that must be hashed with the sync phrase
 
-func BindNewClient(node P2PNode) (*ClientInfo, error) {
+func BindNewClient(node *P2PNode) (*ClientInfo, error) {
 	syncPhrase := newMnemonic(4)
 	ctx, cancelAdvert := context.WithCancel(context.Background())
 	defer cancelAdvert()
@@ -74,7 +76,10 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 				fmt.Println("Error converting client info message:", err)
 				return
 			}
-
+			info.AddrInfo = peer.AddrInfo{
+				ID:    info.PeerID,
+				Addrs: []multiaddr.Multiaddr{s.Conn().RemoteMultiaddr()},
+			}
 			clientInfo <- info
 		}
 	})
