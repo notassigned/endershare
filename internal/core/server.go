@@ -18,7 +18,7 @@ func ServerMain() {
 }
 
 func (core *Core) bindToClient() {
-	client, err := p2p.BindNewClient(core.p2pNode)
+	client, err := p2p.BindToClient(core.p2pNode)
 	if err != nil {
 		panic(fmt.Sprintf("Error binding to client: %v", err))
 	}

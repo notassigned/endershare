@@ -43,7 +43,11 @@ type challengeResponse struct {
 // The client and server mutually verify knowledge of the sync phrase
 // Each sends each other a random challenge that must be hashed with the sync phrase
 
-func BindNewClient(node *P2PNode) (*ClientInfo, error) {
+// BindToClient generates a sync phrase and outputs it to the user
+// It then advertises the sync phrase and waits for a client to connect
+// Once a client connects, it verifies the client knows the sync phrase
+// If verification is successful, it reads the client info and returns it
+func BindToClient(node *P2PNode) (*ClientInfo, error) {
 	syncPhrase := newMnemonic(4)
 	ctx, cancelAdvert := context.WithCancel(context.Background())
 	defer cancelAdvert()
@@ -102,7 +106,7 @@ func BindNewClient(node *P2PNode) (*ClientInfo, error) {
 func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey) (*peer.AddrInfo, error) {
 	ctx, cancelDiscover := context.WithCancel(context.Background())
 	defer cancelDiscover()
-
+	fmt.Printf("Discovering server with phrase: `%s`\n", syncPhrase)
 	nodes, err := node.DiscoverPeers(ctx, syncPhrase)
 	if err != nil {
 		return nil, err
@@ -126,7 +130,7 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 			continue
 		}
 		if verifiedPeer {
-			fmt.Println("Successfully bound to server:", peerInfo.ID)
+			fmt.Println("Successfully verified server:", peerInfo.ID)
 			//send the master public key to the server
 			c := &ClientInfoMsg{
 				MasterPublicKeyBase64: hex.EncodeToString(masterPubKey),
@@ -184,14 +188,15 @@ func mutualVerification(stream network.Stream, syncPhrase string) (result bool, 
 	stream.Write(resp)
 
 	peerRespBytes := make([]byte, 1024)
-	_, err = stream.Read(peerRespBytes)
+	n, err := stream.Read(peerRespBytes)
 	if err != nil {
 		return
 	}
 	//unmarshal peer response
 	var peerResp challengeResponse
-	err = json.Unmarshal(peerRespBytes, &peerResp)
+	err = json.Unmarshal(peerRespBytes[:n], &peerResp)
 	if err != nil {
+		fmt.Println("Error unmarshalling peer response")
 		return
 	}
 

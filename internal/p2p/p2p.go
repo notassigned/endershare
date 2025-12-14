@@ -46,6 +46,8 @@ func NewP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []pee
 			"/ip6/::/udp/13000/quic"),
 	)
 
+	fmt.Println("Node started with ID:", host.ID())
+
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +120,7 @@ func (p *P2PNode) DiscoverPeers(ctx context.Context, rendesvous string) (<-chan 
 }
 
 func (p *P2PNode) Advertize(ctx context.Context, rendesvous string) error {
+	//TODO: replace sha256 with bcrypt
 	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
 	_, err := p.discovery.Advertise(ctx, string(key[:]), discovery.TTL(time.Hour))
 	return err
@@ -129,6 +132,7 @@ func (p *P2PNode) ManageConnections(ctx context.Context, key string) {
 	if err != nil {
 		fmt.Println("Error advertising:", err)
 	}
+
 	peers, err := p.DiscoverPeers(ctx, key)
 	if err != nil {
 		fmt.Println("Error enabling discovery:", err)

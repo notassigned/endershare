@@ -1,8 +1,11 @@
 package core
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
@@ -20,10 +23,11 @@ func ClientMain(bind bool) {
 	c.setupNotifyService(context.Background())
 
 	if bind {
-		var syncPhrase string
 		fmt.Print("Enter sync phrase to bind to server: ")
-		fmt.Scanln(&syncPhrase)
-		c.bindNewServer(syncPhrase)
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		//input = input[:len(input)-1] // Remove newline character
+		c.bindNewServer(strings.TrimSpace(input))
 	}
 
 	go c.p2pNode.ManageConnections(context.Background(), string(c.keys.MasterPublicKey))
@@ -36,6 +40,7 @@ func (c *Core) bindNewServer(syncPhrase string) {
 	server, err := p2p.BindNewServer(syncPhrase, c.p2pNode, c.keys.MasterPublicKey)
 	if err != nil {
 		fmt.Println("Error binding to server:", err)
+		return
 	}
 	c.db.AddPeer(*server)
 }
