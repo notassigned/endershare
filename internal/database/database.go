@@ -30,7 +30,7 @@ func Create() *EndershareDB {
 		hash BLOB NOT NULL
     );
 	CREATE TABLE IF NOT EXISTS peers (
-		id TEXT PRIMARY KEY,
+		peer_id TEXT PRIMARY KEY,
 		addrs TEXT NULL,
 		peer_signature BLOB NULL
 	);
