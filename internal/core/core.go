@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"os"
 	"strings"
@@ -26,8 +27,9 @@ func ClientMain(bind bool) {
 		fmt.Print("Enter sync phrase to bind to server: ")
 		reader := bufio.NewReader(os.Stdin)
 		input, _ := reader.ReadString('\n')
-		//input = input[:len(input)-1] // Remove newline character
-		c.bindNewServer(strings.TrimSpace(input))
+		//sign the host peer id with the master private key
+		peerSignature := ed25519.Sign(c.keys.MasterPrivateKey, []byte(c.p2pNode.GetPeerId().String()))
+		c.bindNewServer(strings.TrimSpace(input), peerSignature)
 	}
 
 	go c.p2pNode.ManageConnections(context.Background(), string(c.keys.MasterPublicKey))
@@ -36,13 +38,13 @@ func ClientMain(bind bool) {
 	select {}
 }
 
-func (c *Core) bindNewServer(syncPhrase string) {
-	server, err := p2p.BindNewServer(syncPhrase, c.p2pNode, c.keys.MasterPublicKey)
+func (c *Core) bindNewServer(syncPhrase string, peerSignature []byte) {
+	server, err := p2p.BindNewServer(syncPhrase, c.p2pNode, c.keys.MasterPublicKey, peerSignature)
 	if err != nil {
 		fmt.Println("Error binding to server:", err)
 		return
 	}
-	c.db.AddPeer(*server)
+	c.db.AddPeer(*server, ed25519.Sign(c.keys.MasterPrivateKey, []byte(server.ID.String())))
 }
 
 func coreStartup() *Core {

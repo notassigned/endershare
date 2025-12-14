@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -103,7 +103,7 @@ func BindToClient(node *P2PNode) (*ClientInfo, error) {
 // BindNewServer searches for the server and verifies it knows the sync phrase
 // Once it finds the new server, it sends the master public key for the server to bind to
 // TODO: add context with timeout
-func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey) (*peer.AddrInfo, error) {
+func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey, peerSignature []byte) (*peer.AddrInfo, error) {
 	ctx, cancelDiscover := context.WithCancel(context.Background())
 	defer cancelDiscover()
 	fmt.Printf("Discovering server with phrase: `%s`\n", syncPhrase)
@@ -133,7 +133,9 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 			fmt.Println("Successfully verified server:", peerInfo.ID)
 			//send the master public key to the server
 			c := &ClientInfoMsg{
-				MasterPublicKeyBase64: hex.EncodeToString(masterPubKey),
+				MasterPublicKeyBase64: base64.StdEncoding.EncodeToString(masterPubKey),
+				PeerID:                node.host.ID().String(),
+				PeerSignatureBase64:   base64.StdEncoding.EncodeToString(peerSignature),
 			}
 			jsonData, err := json.Marshal(c)
 			if err != nil {
@@ -225,7 +227,7 @@ func verifyChallengeResponse(syncPhrase string, challenge [32]byte, response cha
 }
 
 func clientInfoMsgToClientInfo(msg *ClientInfoMsg) (*ClientInfo, error) {
-	masterPubKeyBytes, err := hex.DecodeString(msg.MasterPublicKeyBase64)
+	masterPubKeyBytes, err := base64.StdEncoding.DecodeString(msg.MasterPublicKeyBase64)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +235,7 @@ func clientInfoMsgToClientInfo(msg *ClientInfoMsg) (*ClientInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	peerSignature, err := hex.DecodeString(msg.PeerSignatureBase64)
+	peerSignature, err := base64.StdEncoding.DecodeString(msg.PeerSignatureBase64)
 	if err != nil {
 		return nil, err
 	}

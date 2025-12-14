@@ -69,6 +69,10 @@ func NewP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []pee
 	return n, nil
 }
 
+func (p *P2PNode) GetPeerId() peer.ID {
+	return p.host.ID()
+}
+
 func (p *P2PNode) AddPeer(addrInfo peer.AddrInfo) {
 	p.peers.Store(addrInfo.ID, addrInfo)
 }

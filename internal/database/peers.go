@@ -7,6 +7,14 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
+// Peers are stored with a signature of the peer id signed by the master private key
+// TODO: implement signatures
+type DBPeer struct {
+	PeerID        string
+	Addresses     []string
+	PeerSignature []byte
+}
+
 func (db *EndershareDB) GetPeers() (peers []peer.AddrInfo) {
 	rows, err := db.db.Query("SELECT peer_id, addresses FROM peers")
 	if err != nil {
@@ -47,12 +55,12 @@ func (db *EndershareDB) GetPeers() (peers []peer.AddrInfo) {
 	return peers
 }
 
-func (db *EndershareDB) AddPeer(addrInfo peer.AddrInfo) error {
+func (db *EndershareDB) AddPeer(addrInfo peer.AddrInfo, peerSignature []byte) error {
 	addresses := []string{}
 	for _, addr := range addrInfo.Addrs {
 		addresses = append(addresses, addr.String())
 	}
 	addressesStr := strings.Join(addresses, "\n")
-	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addresses) VALUES (?, ?)", addrInfo.ID.String(), addressesStr)
+	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addresses, peer_signature) VALUES (?, ?, ?)", addrInfo.ID.String(), addressesStr, peerSignature)
 	return err
 }

@@ -26,7 +26,7 @@ func (core *Core) bindToClient() {
 	if err != nil {
 		panic(fmt.Sprintf("Error storing master public key: %v", err))
 	}
-	err = core.db.AddPeer(client.AddrInfo)
+	err = core.db.AddPeer(client.AddrInfo, client.PeerSignature)
 	if err != nil {
 		panic(fmt.Sprintf("Error adding peer: %v", err))
 	}

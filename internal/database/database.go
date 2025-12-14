@@ -31,8 +31,8 @@ func Create() *EndershareDB {
     );
 	CREATE TABLE IF NOT EXISTS peers (
 		id TEXT PRIMARY KEY,
-		addrs TEXT NOT NULL,
-		signature BLOB NOT NULL
+		addrs TEXT NULL,
+		peer_signature BLOB NULL
 	);
 	`
 	if _, err := db.Exec(createTables); err != nil {
