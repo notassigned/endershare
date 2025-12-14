@@ -15,9 +15,26 @@ type Core struct {
 	db      *database.EndershareDB
 }
 
-func ClientMain() {
+func ClientMain(bind bool) {
 	c := coreStartup()
 	c.setupNotifyService(context.Background())
+
+	if bind {
+		var syncPhrase string
+		fmt.Print("Enter sync phrase to bind to server: ")
+		fmt.Scanln(&syncPhrase)
+		c.bindNewServer(syncPhrase)
+	}
+	// Wait indefinitely
+	select {}
+}
+
+func (c *Core) bindNewServer(syncPhrase string) {
+	server, err := p2p.BindNewServer(syncPhrase, c.p2pNode, c.keys.MasterPublicKey)
+	if err != nil {
+		fmt.Println("Error binding to server:", err)
+	}
+	c.db.AddPeer(*server)
 }
 
 func coreStartup() *Core {
@@ -36,7 +53,7 @@ func coreStartup() *Core {
 	}
 
 	ctx := context.Background()
-	p2pNode, err := p2p.StartP2PNode(keys.PeerPrivateKey, ctx, core.db.GetPeers())
+	p2pNode, err := p2p.NewP2PNode(keys.PeerPrivateKey, ctx, core.db.GetPeers())
 	if err != nil {
 		panic(fmt.Sprintf("Error starting P2P node: %v", err))
 	}

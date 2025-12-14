@@ -16,17 +16,18 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
+	"github.com/notassigned/endershare/internal/safemap"
 )
 
 type P2PNode struct {
 	host        host.Host
 	notifyTopic *gossipsub.Topic
-	peers       map[peer.ID]peer.AddrInfo
+	peers       *safemap.SafeMap[peer.ID, peer.AddrInfo]
 	dht         *dht.IpfsDHT
 	discovery   *routing.RoutingDiscovery
 }
 
-func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []peer.AddrInfo) (*P2PNode, error) {
+func NewP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []peer.AddrInfo) (*P2PNode, error) {
 	lpriv, err := crypto.UnmarshalEd25519PrivateKey(peerPrivKey)
 	if err != nil {
 		return nil, err
@@ -50,11 +51,11 @@ func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []p
 
 	n := &P2PNode{
 		host:  host,
-		peers: make(map[peer.ID]peer.AddrInfo),
+		peers: safemap.NewSafeMap[peer.ID, peer.AddrInfo](),
 	}
 
 	for _, p := range peers {
-		n.peers[p.ID] = p
+		n.peers.Store(p.ID, p)
 	}
 
 	err = n.setupDiscovery(ctx)
@@ -66,7 +67,7 @@ func StartP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []p
 }
 
 func (p *P2PNode) AddPeer(addrInfo peer.AddrInfo) {
-	p.peers[addrInfo.ID] = addrInfo
+	p.peers.Store(addrInfo.ID, addrInfo)
 }
 
 func (p *P2PNode) setupDiscovery(ctx context.Context) error {
@@ -130,6 +131,6 @@ func (p *P2PNode) ManageConnections(ctx context.Context, key string) {
 }
 
 func (p *P2PNode) checkPeerAllowed(peerID peer.ID) bool {
-	_, exists := p.peers[peerID]
+	_, exists := p.peers.Load(peerID)
 	return exists
 }

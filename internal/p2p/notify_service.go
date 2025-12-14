@@ -42,7 +42,7 @@ func (p *P2PNode) PublishNotification(data []byte) error {
 }
 
 func (p *P2PNode) filterNotifyPeers(peerID peer.ID, topic string) bool {
-	if _, ok := p.peers[peerID]; ok {
+	if _, ok := p.peers.Load(peerID); ok {
 		return true
 	}
 	return false

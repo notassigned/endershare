@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/notassigned/endershare/internal/core"
 )
@@ -19,7 +20,12 @@ func main() {
 	case "server":
 		core.ServerMain()
 	case "client":
-		core.ClientMain()
+		//if the args list contains "--bind" pass it to ClientMain
+		bind := false
+		if len(os.Args) > 2 && strings.ToLower(os.Args[2]) == "--bind" {
+			bind = true
+		}
+		core.ClientMain(bind)
 	default:
 		return
 	}

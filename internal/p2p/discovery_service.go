@@ -94,7 +94,7 @@ func BindNewClient(node P2PNode) (*ClientInfo, error) {
 // BindNewServer searches for the server and verifies it knows the sync phrase
 // Once it finds the new server, it sends the master public key for the server to bind to
 // TODO: add context with timeout
-func BindNewServer(syncPhrase string, node P2PNode, masterPubKey ed25519.PublicKey) (*peer.AddrInfo, error) {
+func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey) (*peer.AddrInfo, error) {
 	ctx, cancelDiscover := context.WithCancel(context.Background())
 	defer cancelDiscover()
 
