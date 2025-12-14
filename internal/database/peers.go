@@ -16,7 +16,7 @@ type DBPeer struct {
 }
 
 func (db *EndershareDB) GetPeers() (peers []peer.AddrInfo) {
-	rows, err := db.db.Query("SELECT peer_id, addresses FROM peers")
+	rows, err := db.db.Query("SELECT peer_id, addrs FROM peers")
 	if err != nil {
 		return nil
 	}
@@ -61,6 +61,6 @@ func (db *EndershareDB) AddPeer(addrInfo peer.AddrInfo, peerSignature []byte) er
 		addresses = append(addresses, addr.String())
 	}
 	addressesStr := strings.Join(addresses, "\n")
-	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addresses, peer_signature) VALUES (?, ?, ?)", addrInfo.ID.String(), addressesStr, peerSignature)
+	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addrs, peer_signature) VALUES (?, ?, ?)", addrInfo.ID.String(), addressesStr, peerSignature)
 	return err
 }
