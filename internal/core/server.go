@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
@@ -15,6 +16,10 @@ func ServerMain() {
 	if getMasterPubKey(core.db) == nil {
 		core.bindToClient()
 	}
+
+	go core.p2pNode.ManageConnections(context.Background(), string(core.keys.MasterPublicKey))
+
+	select {}
 }
 
 func (core *Core) bindToClient() {
