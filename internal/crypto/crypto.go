@@ -1,9 +1,13 @@
 package crypto
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
+	"io"
 
 	"github.com/tyler-smith/go-bip39"
 	"golang.org/x/crypto/scrypt"
@@ -84,4 +88,142 @@ func SetupKeysFromMnemonic(mnemonic string) *CryptoKeys {
 func ComputeDataHash(data []byte) []byte {
 	h := blake3.New(len(data), data)
 	return h.Sum(nil)
+}
+
+// Encrypt encrypts data using AES-256-GCM
+func Encrypt(data []byte, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, data, nil)
+	return ciphertext, nil
+}
+
+// Decrypt decrypts data using AES-256-GCM
+func Decrypt(ciphertext []byte, key []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return plaintext, nil
+}
+
+const chunkSize = 64 * 1024 // 64KB chunks for streaming encryption
+
+// EncryptStream encrypts a file in chunks using AES-256-GCM and computes hash of encrypted content
+// Returns the hash of the encrypted content
+func EncryptStream(dst io.Writer, src io.Reader, key []byte, hasher *blake3.Hasher) error {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, chunkSize)
+
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			nonce := make([]byte, gcm.NonceSize())
+			if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+				return err
+			}
+
+			ciphertext := gcm.Seal(nonce, nonce, buf[:n], nil)
+			if _, err := dst.Write(ciphertext); err != nil {
+				return err
+			}
+
+			if hasher != nil {
+				hasher.Write(ciphertext)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DecryptStream decrypts a file that was encrypted with EncryptStream
+func DecryptStream(dst io.Writer, src io.Reader, key []byte) error {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+
+	nonceSize := gcm.NonceSize()
+	// Each chunk is: nonce + encrypted data + auth tag
+	chunkOverhead := nonceSize + gcm.Overhead()
+	encryptedChunkSize := chunkSize + chunkOverhead
+	buf := make([]byte, encryptedChunkSize)
+
+	for {
+		n, err := io.ReadAtLeast(src, buf, nonceSize+1)
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			if n == 0 {
+				break
+			}
+		} else if err != nil {
+			return err
+		}
+
+		nonce := buf[:nonceSize]
+		ciphertext := buf[nonceSize:n]
+
+		plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+		if err != nil {
+			return err
+		}
+
+		if _, err := dst.Write(plaintext); err != nil {
+			return err
+		}
+
+		if n < encryptedChunkSize {
+			break
+		}
+	}
+	return nil
 }

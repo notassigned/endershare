@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 
-	"github.com/notassigned/endershare/internal/crypto"
 	"lukechampine.com/blake3"
 )
 
@@ -13,8 +12,7 @@ type DataEntry struct {
 	Hash  []byte
 }
 
-func (db *EndershareDB) PutData(key []byte, value []byte) error {
-	hash := crypto.ComputeDataHash(append(key, value...))
+func (db *EndershareDB) PutData(key []byte, value []byte, hash []byte) error {
 	_, err := db.db.Exec("INSERT OR REPLACE INTO data (key, value, hash) VALUES (?, ?, ?)", key, value, hash)
 	return err
 }
@@ -39,6 +37,24 @@ func (db *EndershareDB) GetData(key []byte) ([]byte, error) {
 func (db *EndershareDB) DeleteData(key []byte) error {
 	_, err := db.db.Exec("DELETE FROM data WHERE key = ?", key)
 	return err
+}
+
+func (db *EndershareDB) GetAllData() ([]DataEntry, error) {
+	rows, err := db.db.Query("SELECT key, value, hash FROM data")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []DataEntry
+	for rows.Next() {
+		var entry DataEntry
+		if err := rows.Scan(&entry.Key, &entry.Value, &entry.Hash); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }
 
 func (db *EndershareDB) GetDataHash() ([]byte, error) {

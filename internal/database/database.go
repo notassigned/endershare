@@ -29,6 +29,7 @@ func Create() *EndershareDB {
      	value BLOB NOT NULL,
 		hash BLOB NOT NULL
     );
+	CREATE INDEX IF NOT EXISTS idx_data_hash ON data(hash);
 	CREATE TABLE IF NOT EXISTS peers (
 		peer_id TEXT PRIMARY KEY,
 		addrs TEXT NULL,

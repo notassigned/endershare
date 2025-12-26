@@ -11,12 +11,14 @@ import (
 	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
 	"github.com/notassigned/endershare/internal/p2p"
+	"github.com/notassigned/endershare/internal/storage"
 )
 
 type Core struct {
 	p2pNode *p2p.P2PNode
 	keys    *crypto.CryptoKeys
 	db      *database.EndershareDB
+	storage *storage.Storage
 }
 
 func ClientMain(bind bool) {
@@ -70,6 +72,7 @@ func coreStartup() *Core {
 
 	core.p2pNode = p2pNode
 	core.keys = keys
+	core.storage = storage.NewStorage(core.db, keys.AESKey)
 
 	return core
 }
