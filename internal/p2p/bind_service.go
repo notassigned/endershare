@@ -101,13 +101,13 @@ func BindToClient(node *P2PNode) (*ClientInfo, error) {
 	}
 }
 
-// BindNewServer searches for the server and verifies it knows the sync phrase
-// Once it finds the new server, it sends the master public key for the server to bind to
-// TODO: add context with timeout
-func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey, peerSignature []byte) (*peer.AddrInfo, error) {
+// BindNewPeer is called by a master node to authorize a new replica node
+// It discovers the new peer using the sync phrase, verifies mutual knowledge,
+// and sends the master public key and signature to the new peer
+func BindNewPeer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey, masterPrivKey ed25519.PrivateKey) (*peer.AddrInfo, error) {
 	ctx, cancelDiscover := context.WithCancel(context.Background())
 	defer cancelDiscover()
-	fmt.Printf("Discovering server with phrase: `%s`\n", syncPhrase)
+	fmt.Printf("Discovering peer with phrase: `%s`\n", syncPhrase)
 	nodes, err := node.DiscoverPeers(ctx, syncPhrase)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 			fmt.Println("Error connecting to peer:", err)
 			continue
 		}
-		stream, err := node.host.NewStream(ctx, peerInfo.ID, "/endershare/bind/1.0")
+		stream, err := node.host.NewStream(ctx, peerInfo.ID, bindProtocolID)
 		if err != nil {
 			fmt.Println("Error creating stream to peer:", err)
 			continue
@@ -132,11 +132,15 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 			continue
 		}
 		if verifiedPeer {
-			fmt.Println("Successfully verified server:", peerInfo.ID)
-			//send the master public key to the server
+			fmt.Println("Successfully verified peer:", peerInfo.ID)
+
+			// Sign the NEW peer's ID with the master private key
+			peerSignature := ed25519.Sign(masterPrivKey, []byte(peerInfo.ID.String()))
+
+			// Send master public key and the new peer's signature
 			c := &ClientInfoMsg{
 				MasterPublicKeyBase64: base64.StdEncoding.EncodeToString(masterPubKey),
-				PeerID:                node.host.ID().String(),
+				PeerID:                peerInfo.ID.String(),
 				PeerSignatureBase64:   base64.StdEncoding.EncodeToString(peerSignature),
 			}
 			jsonData, err := json.Marshal(c)
@@ -148,13 +152,12 @@ func BindNewServer(syncPhrase string, node *P2PNode, masterPubKey ed25519.Public
 			_, err = stream.Write(jsonData)
 			stream.Close()
 			if err != nil {
-				fmt.Println("Error sending client info to server:", err)
+				fmt.Println("Error sending client info to peer:", err)
 				continue
 			}
 
 			return &peerInfo, nil
 		}
-
 	}
 	return nil, fmt.Errorf("no peers found")
 }

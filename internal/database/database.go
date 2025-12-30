@@ -35,6 +35,10 @@ func Create() *EndershareDB {
 		addrs TEXT NULL,
 		peer_signature BLOB NULL
 	);
+	CREATE TABLE IF NOT EXISTS updates (
+		update_id INTEGER PRIMARY KEY,
+		signed_update_json TEXT NOT NULL
+	);
 	`
 	if _, err := db.Exec(createTables); err != nil {
 		log.Fatal(err)

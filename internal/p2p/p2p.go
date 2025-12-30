@@ -18,6 +18,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/notassigned/endershare/internal/safemap"
+	"golang.org/x/crypto/scrypt"
 )
 
 type P2PNode struct {
@@ -73,6 +74,10 @@ func (p *P2PNode) GetPeerId() peer.ID {
 	return p.host.ID()
 }
 
+func (p *P2PNode) GetHost() host.Host {
+	return p.host
+}
+
 func (p *P2PNode) AddPeer(addrInfo peer.AddrInfo) {
 	p.peers.Store(addrInfo.ID, addrInfo)
 }
@@ -124,9 +129,11 @@ func (p *P2PNode) DiscoverPeers(ctx context.Context, rendesvous string) (<-chan 
 }
 
 func (p *P2PNode) Advertize(ctx context.Context, rendesvous string) error {
-	//TODO: replace sha256 with bcrypt
-	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
-	_, err := p.discovery.Advertise(ctx, string(key[:]), discovery.TTL(time.Hour))
+	key, err := scrypt.Key([]byte(rendesvous), []byte("endershare-rendezvous"), 32768, 8, 1, 32)
+	if err != nil {
+		return err
+	}
+	_, err = p.discovery.Advertise(ctx, string(key[:]), discovery.TTL(time.Hour))
 	return err
 }
 

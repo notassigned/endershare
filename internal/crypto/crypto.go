@@ -35,6 +35,24 @@ func CreateCryptoKeys() (*CryptoKeys, string) {
 	return SetupKeysFromMnemonic(m), m
 }
 
+// CreatePeerOnlyKeys generates only peer keys for replica nodes
+// Replica nodes are untrusted and do not receive the master key or AES key
+func CreatePeerOnlyKeys() *CryptoKeys {
+	randPeerSeed := make([]byte, 32)
+	rand.Read(randPeerSeed)
+	peerPriv := ed25519.NewKeyFromSeed(randPeerSeed)
+	peerPub := peerPriv.Public().(ed25519.PublicKey)
+
+	return &CryptoKeys{
+		MasterPrivateKey: nil, // Will not be set for replica nodes
+		MasterPublicKey:  nil, // Will be set during binding
+		PeerPrivateKey:   peerPriv,
+		PeerPublicKey:    peerPub,
+		PeerSignature:    nil, // Will be set during binding
+		AESKey:           nil, // Not provided to untrusted replica nodes
+	}
+}
+
 func VerifySignature(publicKey ed25519.PublicKey, message []byte, signature []byte) bool {
 	ok := ed25519.Verify(publicKey, message, signature)
 	return ok

@@ -64,3 +64,67 @@ func (db *EndershareDB) AddPeer(addrInfo peer.AddrInfo, peerSignature []byte) er
 	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addrs, peer_signature) VALUES (?, ?, ?)", addrInfo.ID.String(), addressesStr, peerSignature)
 	return err
 }
+
+// GetAllPeerIDs returns a sorted list of all peer IDs
+func (db *EndershareDB) GetAllPeerIDs() []string {
+	rows, err := db.db.Query("SELECT peer_id FROM peers ORDER BY peer_id")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var peerIDs []string
+	for rows.Next() {
+		var peerID string
+		if err := rows.Scan(&peerID); err != nil {
+			continue
+		}
+		peerIDs = append(peerIDs, peerID)
+	}
+	return peerIDs
+}
+
+// UpdatePeerAddresses updates the addresses for an existing peer
+func (db *EndershareDB) UpdatePeerAddresses(peerID string, addrs []string) error {
+	addressesStr := strings.Join(addrs, "\n")
+	_, err := db.db.Exec("UPDATE peers SET addrs = ? WHERE peer_id = ?", addressesStr, peerID)
+	return err
+}
+
+// RemovePeer removes a peer by ID
+func (db *EndershareDB) RemovePeer(peerID string) error {
+	_, err := db.db.Exec("DELETE FROM peers WHERE peer_id = ?", peerID)
+	return err
+}
+
+// ReplaceAllPeers atomically replaces all peers with a new list
+func (db *EndershareDB) ReplaceAllPeers(peers []DBPeer) error {
+	tx, err := db.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete all existing peers
+	_, err = tx.Exec("DELETE FROM peers")
+	if err != nil {
+		return err
+	}
+
+	// Insert all new peers
+	stmt, err := tx.Prepare("INSERT INTO peers (peer_id, addrs, peer_signature) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, peer := range peers {
+		addressesStr := strings.Join(peer.Addresses, "\n")
+		_, err = stmt.Exec(peer.PeerID, addressesStr, peer.PeerSignature)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}

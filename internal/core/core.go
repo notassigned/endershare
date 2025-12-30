@@ -1,12 +1,9 @@
 package core
 
 import (
-	"bufio"
 	"context"
-	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
@@ -21,35 +18,7 @@ type Core struct {
 	storage *storage.Storage
 }
 
-func ClientMain(bind bool) {
-	c := coreStartup()
-	c.setupNotifyService(context.Background())
-
-	if bind {
-		fmt.Print("Enter sync phrase to bind to server: ")
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		//sign the host peer id with the master private key
-		peerSignature := ed25519.Sign(c.keys.MasterPrivateKey, []byte(c.p2pNode.GetPeerId().String()))
-		c.bindNewServer(strings.TrimSpace(input), peerSignature)
-	}
-
-	go c.p2pNode.ManageConnections(context.Background(), string(c.keys.MasterPublicKey))
-
-	// Wait indefinitely
-	select {}
-}
-
-func (c *Core) bindNewServer(syncPhrase string, peerSignature []byte) {
-	server, err := p2p.BindNewServer(syncPhrase, c.p2pNode, c.keys.MasterPublicKey, peerSignature)
-	if err != nil {
-		fmt.Println("Error binding to server:", err)
-		return
-	}
-	c.db.AddPeer(*server, ed25519.Sign(c.keys.MasterPrivateKey, []byte(server.ID.String())))
-}
-
-func coreStartup() *Core {
+func coreStartup(initMode bool) *Core {
 	core := &Core{
 		db: database.Create(),
 	}
@@ -57,11 +26,18 @@ func coreStartup() *Core {
 	//Check for keys in db
 	keys := core.db.GetKeys()
 	if keys == nil {
-		var mnemonic string
-		keys, mnemonic = crypto.CreateCryptoKeys()
-		core.db.StoreKeys(keys)
-		//output seed
-		fmt.Println("Generated new keys with mnemonic:", mnemonic)
+		if initMode {
+			// Master node initialization - generate full keys
+			var mnemonic string
+			keys, mnemonic = crypto.CreateCryptoKeys()
+			core.db.StoreKeys(keys)
+			fmt.Println("Generated new keys with mnemonic:", mnemonic)
+		} else {
+			// Replica node - generate peer-only keys
+			keys = crypto.CreatePeerOnlyKeys()
+			core.db.StoreKeys(keys)
+			fmt.Println("Generated peer keys (waiting for network binding)")
+		}
 	}
 
 	ctx := context.Background()
@@ -72,7 +48,36 @@ func coreStartup() *Core {
 
 	core.p2pNode = p2pNode
 	core.keys = keys
-	core.storage = storage.NewStorage(core.db, keys.AESKey)
+	// Storage might not have AES key yet for replica nodes - will be set after binding
+	if keys.AESKey != nil {
+		core.storage = storage.NewStorage(core.db, keys.AESKey)
+	}
+
+	// Initialize node table properties if not set
+	core.initializeNodeProperties()
+
+	// Setup sync stream handlers
+	core.p2pNode.SetupSyncHandlers(core.db)
 
 	return core
+}
+
+// initializeNodeProperties initializes node table properties if they don't exist
+func (c *Core) initializeNodeProperties() {
+	// Initialize current_update_id to 0 if not set
+	if _, err := c.db.GetNodeProperty("current_update_id"); err != nil {
+		c.db.SetNodeProperty("current_update_id", "0")
+	}
+
+	// Initialize peer_list_hash to zero hash if not set
+	if _, err := c.db.GetNodeProperty("peer_list_hash"); err != nil {
+		zeroHash := make([]byte, 32)
+		c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(zeroHash))
+	}
+
+	// Initialize data_hash to zero hash if not set
+	if _, err := c.db.GetNodeProperty("data_hash"); err != nil {
+		zeroHash := make([]byte, 32)
+		c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(zeroHash))
+	}
 }

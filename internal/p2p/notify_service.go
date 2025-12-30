@@ -7,7 +7,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]byte, []byte)) error {
+func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]byte, peer.ID)) error {
 	gossip, err := gossipsub.NewGossipSub(ctx, p.host, gossipsub.WithPeerFilter(p.filterNotifyPeers))
 	if err != nil {
 		return err
@@ -30,7 +30,7 @@ func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]by
 				return
 			}
 
-			notification(msg.Message.Data, msg.Message.From)
+			notification(msg.Message.Data, msg.ReceivedFrom)
 		}
 	}()
 	p.notifyTopic = topic
