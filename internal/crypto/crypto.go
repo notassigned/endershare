@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -19,7 +20,6 @@ type CryptoKeys struct {
 	MasterPublicKey  ed25519.PublicKey
 	PeerPrivateKey   ed25519.PrivateKey
 	PeerPublicKey    ed25519.PublicKey
-	PeerSignature    []byte
 	AESKey           []byte
 }
 
@@ -48,7 +48,6 @@ func CreatePeerOnlyKeys() *CryptoKeys {
 		MasterPublicKey:  nil, // Will be set during binding
 		PeerPrivateKey:   peerPriv,
 		PeerPublicKey:    peerPub,
-		PeerSignature:    nil, // Will be set during binding
 		AESKey:           nil, // Not provided to untrusted replica nodes
 	}
 }
@@ -87,9 +86,6 @@ func SetupKeysFromMnemonic(mnemonic string) *CryptoKeys {
 	peerPriv := ed25519.NewKeyFromSeed(randPeerSeed)
 	peerPub := peerPriv.Public().(ed25519.PublicKey)
 
-	//sign peer public key with master private key
-	peerSignature := ed25519.Sign(priv, peerPub)
-
 	//generate encryption key
 	AESKey := sha256.Sum256(key)
 
@@ -98,13 +94,20 @@ func SetupKeysFromMnemonic(mnemonic string) *CryptoKeys {
 		MasterPublicKey:  pub,
 		PeerPrivateKey:   peerPriv,
 		PeerPublicKey:    peerPub,
-		PeerSignature:    peerSignature,
 		AESKey:           AESKey[:],
 	}
 }
 
-func ComputeDataHash(data []byte) []byte {
-	h := blake3.New(len(data), data)
+// Hash is computed as: hash(key + value + uint64(size)) for files, hash(key) for folders
+func ComputeDataHash(key []byte, value []byte, size int64) []byte {
+	h := blake3.New(32, nil)
+	sizeBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(sizeBuf, uint64(size))
+	h.Write(key)
+	if value != nil {
+		h.Write(value)
+		h.Write(sizeBuf)
+	}
 	return h.Sum(nil)
 }
 

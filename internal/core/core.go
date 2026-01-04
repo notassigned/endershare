@@ -12,10 +12,11 @@ import (
 )
 
 type Core struct {
-	p2pNode *p2p.P2PNode
-	keys    *crypto.CryptoKeys
-	db      *database.EndershareDB
-	storage *storage.Storage
+	p2pNode    *p2p.P2PNode
+	keys       *crypto.CryptoKeys
+	db         *database.EndershareDB
+	storage    *storage.Storage
+	merkleTree *crypto.MerkleTree
 }
 
 func coreStartup(initMode bool) *Core {
@@ -56,8 +57,16 @@ func coreStartup(initMode bool) *Core {
 	// Initialize node table properties if not set
 	core.initializeNodeProperties()
 
+	// Build merkle tree from data table
+	dataHashes := core.db.GetAllDataHashes()
+	core.merkleTree = crypto.NewMerkleTree(dataHashes)
+
+	// Store merkle root in node properties
+	rootHash := core.merkleTree.GetRootHash()
+	core.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(rootHash))
+
 	// Setup sync stream handlers
-	core.p2pNode.SetupSyncHandlers(core.db)
+	core.setupSyncHandlers()
 
 	return core
 }
@@ -80,4 +89,13 @@ func (c *Core) initializeNodeProperties() {
 		zeroHash := make([]byte, 32)
 		c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(zeroHash))
 	}
+}
+
+// setupSyncHandlers registers stream handlers for syncing
+func (c *Core) setupSyncHandlers() {
+	c.p2pNode.NewStreamHandler("/endershare/peer-list/1.0", c.handlePeerListRequest)
+	c.p2pNode.NewStreamHandler("/endershare/tree-bucket-hashes/1.0", c.handleTreeBucketHashesRequest)
+	c.p2pNode.NewStreamHandler("/endershare/data-bucket-hashes/1.0", c.handleDataBucketHashesRequest)
+	c.p2pNode.NewStreamHandler("/endershare/metadata/1.0", c.handleMetadataRequest)
+	c.p2pNode.NewStreamHandler("/endershare/file-data/1.0", c.handleFileDataRequest)
 }

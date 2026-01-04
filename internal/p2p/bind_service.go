@@ -25,13 +25,11 @@ const bindProtocolID = "/endershare/bind/1.0"
 type ClientInfoMsg struct {
 	MasterPublicKeyBase64 string
 	PeerID                string
-	PeerSignatureBase64   string
 }
 
 type ClientInfo struct {
 	MasterPublicKey ed25519.PublicKey
 	PeerID          peer.ID
-	PeerSignature   []byte
 	AddrInfo        peer.AddrInfo
 }
 
@@ -134,14 +132,10 @@ func BindNewPeer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKe
 		if verifiedPeer {
 			fmt.Println("Successfully verified peer:", peerInfo.ID)
 
-			// Sign the NEW peer's ID with the master private key
-			peerSignature := ed25519.Sign(masterPrivKey, []byte(peerInfo.ID.String()))
-
-			// Send master public key and the new peer's signature
+			// Send master public key
 			c := &ClientInfoMsg{
 				MasterPublicKeyBase64: base64.StdEncoding.EncodeToString(masterPubKey),
 				PeerID:                peerInfo.ID.String(),
-				PeerSignatureBase64:   base64.StdEncoding.EncodeToString(peerSignature),
 			}
 			jsonData, err := json.Marshal(c)
 			if err != nil {
@@ -243,14 +237,9 @@ func clientInfoMsgToClientInfo(msg *ClientInfoMsg) (*ClientInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	peerSignature, err := base64.StdEncoding.DecodeString(msg.PeerSignatureBase64)
-	if err != nil {
-		return nil, err
-	}
 	return &ClientInfo{
 		MasterPublicKey: ed25519.PublicKey(masterPubKeyBytes),
 		PeerID:          peerID,
-		PeerSignature:   peerSignature,
 	}, nil
 }
 

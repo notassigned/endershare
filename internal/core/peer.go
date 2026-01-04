@@ -115,9 +115,8 @@ func (c *Core) BindNewPeer(syncPhrase string) error {
 		return err
 	}
 
-	// Add to allowed peers (signature is created in BindNewPeer)
-	peerSignature := ed25519.Sign(c.keys.MasterPrivateKey, []byte(peerInfo.ID.String()))
-	err = c.db.AddPeer(*peerInfo, peerSignature)
+	// Add to allowed peers
+	err = c.db.AddPeer(*peerInfo)
 	if err != nil {
 		return fmt.Errorf("error adding peer to database: %v", err)
 	}
@@ -129,7 +128,7 @@ func (c *Core) BindNewPeer(syncPhrase string) error {
 	for _, addr := range peerInfo.Addrs {
 		addrs = append(addrs, addr.String())
 	}
-	if err := c.PublishPeerUpdate("ADD", peerInfo.ID.String(), addrs, peerSignature); err != nil {
+	if err := c.PublishPeerUpdate("ADD", peerInfo.ID.String(), addrs); err != nil {
 		fmt.Println("Warning: Failed to publish peer update:", err)
 	}
 
@@ -151,13 +150,12 @@ func (c *Core) bindToMaster() {
 
 	// Update keys with received master public key
 	c.keys.MasterPublicKey = clientInfo.MasterPublicKey
-	c.keys.PeerSignature = clientInfo.PeerSignature
 
-	// Store the updated keys (including signature)
+	// Store the updated keys
 	c.db.StoreKeys(c.keys)
 
 	// Add master node to allowed peers
-	err = c.db.AddPeer(clientInfo.AddrInfo, clientInfo.PeerSignature)
+	err = c.db.AddPeer(clientInfo.AddrInfo)
 	if err != nil {
 		panic(fmt.Sprintf("Error adding master peer: %v", err))
 	}
@@ -193,7 +191,7 @@ func coreStartupWithMnemonic(mnemonic string) *Core {
 }
 
 // PublishPeerUpdate creates and broadcasts a peer update (ADD or REMOVE)
-func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string, peerSig []byte) error {
+func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) error {
 	// Get current state
 	currentIDStr, err := c.db.GetNodeProperty("current_update_id")
 	if err != nil {
@@ -218,10 +216,9 @@ func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string, p
 
 	// Create update data
 	peerUpdate := PeerUpdate{
-		Action:        action,
-		PeerID:        peerID,
-		Addresses:     addrs,
-		PeerSignature: peerSig,
+		Action:    action,
+		PeerID:    peerID,
+		Addresses: addrs,
 	}
 
 	// Create update

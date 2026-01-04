@@ -7,12 +7,9 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-// Peers are stored with a signature of the peer id signed by the master private key
-// TODO: implement signatures
 type DBPeer struct {
-	PeerID        string
-	Addresses     []string
-	PeerSignature []byte
+	PeerID    string
+	Addresses []string
 }
 
 func (db *EndershareDB) GetPeers() (peers []peer.AddrInfo) {
@@ -55,13 +52,13 @@ func (db *EndershareDB) GetPeers() (peers []peer.AddrInfo) {
 	return peers
 }
 
-func (db *EndershareDB) AddPeer(addrInfo peer.AddrInfo, peerSignature []byte) error {
+func (db *EndershareDB) AddPeer(addrInfo peer.AddrInfo) error {
 	addresses := []string{}
 	for _, addr := range addrInfo.Addrs {
 		addresses = append(addresses, addr.String())
 	}
 	addressesStr := strings.Join(addresses, "\n")
-	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addrs, peer_signature) VALUES (?, ?, ?)", addrInfo.ID.String(), addressesStr, peerSignature)
+	_, err := db.db.Exec("INSERT OR REPLACE INTO peers (peer_id, addrs) VALUES (?, ?)", addrInfo.ID.String(), addressesStr)
 	return err
 }
 
@@ -112,7 +109,7 @@ func (db *EndershareDB) ReplaceAllPeers(peers []DBPeer) error {
 	}
 
 	// Insert all new peers
-	stmt, err := tx.Prepare("INSERT INTO peers (peer_id, addrs, peer_signature) VALUES (?, ?, ?)")
+	stmt, err := tx.Prepare("INSERT INTO peers (peer_id, addrs) VALUES (?, ?)")
 	if err != nil {
 		return err
 	}
@@ -120,7 +117,7 @@ func (db *EndershareDB) ReplaceAllPeers(peers []DBPeer) error {
 
 	for _, peer := range peers {
 		addressesStr := strings.Join(peer.Addresses, "\n")
-		_, err = stmt.Exec(peer.PeerID, addressesStr, peer.PeerSignature)
+		_, err = stmt.Exec(peer.PeerID, addressesStr)
 		if err != nil {
 			return err
 		}

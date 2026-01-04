@@ -2,14 +2,12 @@ package core
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/notassigned/endershare/internal/database"
 )
@@ -115,7 +113,7 @@ func (c *Core) applyPeerUpdate(updateData interface{}, expectedHash []byte, from
 			// Convert to AddrInfo format (simplified - just store in database directly)
 			// The full conversion will happen when GetPeers is called
 			// For now, use the raw insert
-			c.db.AddPeer(peerInfoFromPeerUpdate(peerUpdate), peerUpdate.PeerSignature)
+			c.db.AddPeer(peerInfoFromPeerUpdate(peerUpdate))
 		}
 
 	case "REMOVE":
@@ -145,9 +143,8 @@ func (c *Core) syncPeerListFull(expectedHash []byte, from peer.ID) error {
 	dbPeers := make([]database.DBPeer, len(resp))
 	for i, p := range resp {
 		dbPeers[i] = database.DBPeer{
-			PeerID:        p.PeerID,
-			Addresses:     p.Addresses,
-			PeerSignature: p.PeerSignature,
+			PeerID:    p.PeerID,
+			Addresses: p.Addresses,
 		}
 	}
 
@@ -183,15 +180,15 @@ func (c *Core) syncData(update Update, from peer.ID) error {
 	// Check if we can fast-forward
 	if bytes.Equal(update.PrevDataHash, currentHash) && update.UpdateDataType == "DATA" {
 		// Fast-forward: apply update directly
-		return c.applyDataUpdate(update.UpdateData)
+		return c.applyDataUpdate(update.UpdateData, from)
 	}
 
-	// Full sync needed: use merkle tree diff (future implementation)
-	return c.syncDataFull(update.DataHash, from)
+	// Full sync needed: use merkle tree diff
+	return c.syncDataFull(update, from)
 }
 
 // applyDataUpdate applies a data update directly (fast-forward path)
-func (c *Core) applyDataUpdate(updateData interface{}) error {
+func (c *Core) applyDataUpdate(updateData interface{}, from peer.ID) error {
 	// Parse as DataUpdate
 	updateJSON, err := json.Marshal(updateData)
 	if err != nil {
@@ -206,25 +203,113 @@ func (c *Core) applyDataUpdate(updateData interface{}) error {
 
 	switch dataUpdate.Action {
 	case "ADD", "MODIFY":
-		// Add/update entry in data table
-		// TODO: Request file by hash if needed
-		fmt.Printf("Data update: %s key with hash\n", dataUpdate.Action)
+		// Insert metadata into database and merkle tree
+		c.insertData(dataUpdate.Key, dataUpdate.Value, dataUpdate.Size, dataUpdate.Hash)
+
+		// Download file if Value is not nil (folders have nil value)
+		if dataUpdate.Value != nil {
+			if err := c.downloadFile(from, dataUpdate.Value); err != nil {
+				fmt.Printf("Warning: failed to download file: %v\n", err)
+			}
+		}
 
 	case "DELETE":
-		// Remove entry from data table
-		fmt.Printf("Data update: DELETE key\n")
+		// Remove entry from database and merkle tree
+		c.deleteData(dataUpdate.Key, dataUpdate.Hash)
 
 	default:
 		return fmt.Errorf("unknown data update action: %s", dataUpdate.Action)
 	}
 
+	// Update data hash once after applying update
+	c.updateDataHash()
+
 	return nil
 }
 
 // syncDataFull performs full data sync using merkle tree
-func (c *Core) syncDataFull(expectedHash []byte, from peer.ID) error {
-	// TODO: Implement merkle tree sync
-	fmt.Println("Warning: Full data sync not yet implemented")
+func (c *Core) syncDataFull(update Update, from peer.ID) error {
+	// Phase 1: Check if tree structure matches
+	if c.merkleTree == nil || c.merkleTree.GetNumBuckets() != update.NumBuckets {
+		// Bucket count mismatch - need full rebuild
+		return c.rebuildTreeFromPeer(update.NumBuckets, update.DataHash, from)
+	}
+
+	// Phase 2: Request peer's merkle tree bucket hashes and find differences
+	peerTreeBuckets := c.RequestTreeBucketHashes(from, update.NumBuckets)
+	localTreeBuckets := c.merkleTree.GetBucketHashes()
+
+	diffBucketIndices := []int{}
+	for i := 0; i < len(localTreeBuckets); i++ {
+		if i >= len(peerTreeBuckets) || !bytes.Equal(localTreeBuckets[i], peerTreeBuckets[i]) {
+			diffBucketIndices = append(diffBucketIndices, i)
+		}
+	}
+
+	// Phase 3: For each differing bucket, get data entry hashes and compute diff
+	c.db.MarkAllStale() // Mark all entries as stale
+
+	hashesToDownload := [][]byte{} // Data entry hashes needing metadata/files
+
+	for _, bucketIdx := range diffBucketIndices {
+		// Request data entry hashes in this bucket from peer
+		peerDataHashes := c.RequestDataBucketHashes(from, bucketIdx, update.NumBuckets)
+		localDataHashes := c.db.GetBucketHashes(bucketIdx, update.NumBuckets)
+
+		// Mark peer hashes as current
+		for _, hash := range peerDataHashes {
+			if !containsHash(localDataHashes, hash) {
+				// New hash - need to download metadata and file
+				hashesToDownload = append(hashesToDownload, hash)
+			}
+			// Mark as current (will be inserted or already exists)
+			c.db.MarkHashCurrent(hash)
+		}
+	}
+
+	// Phase 4: Download metadata and files for new hashes
+	if len(hashesToDownload) > 0 {
+		// Request metadata (key + file hash) for all needed hashes at once
+		metadataList, err := c.RequestMetadata(from, hashesToDownload)
+		if err != nil {
+			return fmt.Errorf("failed to request metadata: %w", err)
+		}
+
+		for _, metadata := range metadataList {
+			// Insert metadata into database
+			c.db.PutData(metadata.Key, metadata.Value, metadata.Size, metadata.Hash)
+			c.merkleTree.Insert(metadata.Hash)
+
+			// Request file if Value is not nil (folders have nil value)
+			if metadata.Value != nil {
+				if err := c.downloadFile(from, metadata.Value); err != nil {
+					fmt.Printf("Warning: failed to download file: %v\n", err)
+				}
+			}
+		}
+	}
+
+	// Phase 5: Delete stale entries and update hash
+	staleHashes := c.db.GetStaleHashes()
+	for _, hash := range staleHashes {
+		c.merkleTree.Delete(hash)
+	}
+	c.db.DeleteStaleEntries()
+
+	c.updateDataHash() // Call once at end
+
+	// Verify root hash
+	if !bytes.Equal(c.merkleTree.GetRootHash(), update.DataHash) {
+		return fmt.Errorf("merkle root mismatch after sync")
+	}
+
+	return nil
+}
+
+// rebuildTreeFromPeer performs a full rebuild when bucket count mismatches
+func (c *Core) rebuildTreeFromPeer(numBuckets int, expectedHash []byte, from peer.ID) error {
+	// TODO: Implement full tree rebuild
+	fmt.Println("Warning: Tree rebuild not yet implemented")
 	return nil
 }
 
@@ -243,10 +328,9 @@ func peerInfoFromPeerUpdate(pu PeerUpdate) peer.AddrInfo {
 // RequestPeerList requests the full peer list from a connected peer
 func (c *Core) RequestPeerList(peerID peer.ID) ([]PeerInfoResponse, error) {
 	// Open stream to peer
-	stream, err := c.p2pNode.GetHost().NewStream(
-		context.Background(),
+	stream, err := c.p2pNode.NewStreamToPeer(
 		peer.ID(peerID),
-		protocol.ID("/endershare/peer-list/1.0"),
+		"/endershare/peer-list/1.0",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open stream: %w", err)
@@ -261,10 +345,4 @@ func (c *Core) RequestPeerList(peerID peer.ID) ([]PeerInfoResponse, error) {
 	}
 
 	return response, nil
-}
-
-type PeerInfoResponse struct {
-	PeerID        string   `json:"peer_id"`
-	Addresses     []string `json:"addresses"`
-	PeerSignature []byte   `json:"peer_signature"`
 }

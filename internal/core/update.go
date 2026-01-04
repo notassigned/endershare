@@ -14,6 +14,7 @@ type Update struct {
 	PrevPeerListHash []byte      `json:"prev_peer_list_hash"`
 	DataHash         []byte      `json:"data_hash"`
 	PrevDataHash     []byte      `json:"prev_data_hash"`
+	NumBuckets       int         `json:"num_buckets"`
 	UpdateDataType   string      `json:"update_data_type"` // "PEER" or "DATA"
 	UpdateData       interface{} `json:"update_data"`
 	Timestamp        int64       `json:"timestamp"`
@@ -25,16 +26,17 @@ type SignedUpdate struct {
 }
 
 type PeerUpdate struct {
-	Action        string   `json:"action"` // "ADD" or "REMOVE"
-	PeerID        string   `json:"peer_id"`
-	Addresses     []string `json:"addresses,omitempty"`      // Only for ADD
-	PeerSignature []byte   `json:"peer_signature,omitempty"` // Only for ADD
+	Action    string   `json:"action"`               // "ADD" or "REMOVE"
+	PeerID    string   `json:"peer_id"`
+	Addresses []string `json:"addresses,omitempty"` // Only for ADD
 }
 
 type DataUpdate struct {
 	Action string `json:"action"` // "ADD", "MODIFY", "DELETE"
 	Key    []byte `json:"key"`
-	Hash   []byte `json:"hash,omitempty"` // For ADD/MODIFY, omitted for DELETE
+	Value  []byte `json:"value,omitempty"` // File hash for files, nil for folders
+	Size   int64  `json:"size,omitempty"`  // Size of file, 0 for folders
+	Hash   []byte `json:"hash,omitempty"`  // For ADD/MODIFY, omitted for DELETE
 }
 
 // ComputePeerListHash creates a BLAKE3 hash of sorted peer IDs

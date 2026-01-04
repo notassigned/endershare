@@ -3,11 +3,16 @@ package crypto
 import (
 	"bytes"
 	"math/big"
+	"sort"
 
 	"lukechampine.com/blake3"
 )
 
-const HASHES_PER_BUCKET = 10
+const (
+	HASHES_PER_BUCKET        = 10
+	REBUILD_UPPER_MULTIPLIER = 2 // Rebuild with more buckets when avg > HASHES_PER_BUCKET * 2
+	REBUILD_LOWER_DIVISOR    = 4 // Rebuild with fewer buckets when avg < HASHES_PER_BUCKET / 4
+)
 
 type MerkleNode struct {
 	Hash  []byte
@@ -16,30 +21,46 @@ type MerkleNode struct {
 }
 
 type Bucket struct {
-	Hashes [][]byte
+	Hashes     [][]byte
+	cachedHash []byte // cached BLAKE3 hash
+	hashValid  bool   // cache validity flag
 }
 
 type MerkleTree struct {
-	Buckets    []*Bucket
-	NumBuckets int
-	Root       *MerkleNode
+	Buckets     []*Bucket
+	NumBuckets  int
+	Root        *MerkleNode
+	totalHashes int // cached total count
 }
 
-// ComputeHash computes the BLAKE3 hash of the bucket's contents
-func (b *Bucket) ComputeHash() []byte {
+// GetHash returns the BLAKE3 hash of the bucket's contents, using cache when valid
+func (b *Bucket) GetHash() []byte {
+	if b.hashValid {
+		return b.cachedHash
+	}
+
 	if len(b.Hashes) == 0 {
-		return make([]byte, 32)
+		b.cachedHash = make([]byte, 32)
+		b.hashValid = true
+		return b.cachedHash
 	}
 
 	// Concatenate all hashes in the bucket (already sorted by value)
-	var buf bytes.Buffer
+	buf := bytes.NewBuffer(make([]byte, 0, len(b.Hashes)*32))
 	for _, h := range b.Hashes {
 		buf.Write(h)
 	}
 
 	hasher := blake3.New(32, nil)
 	hasher.Write(buf.Bytes())
-	return hasher.Sum(nil)
+	b.cachedHash = hasher.Sum(nil)
+	b.hashValid = true
+	return b.cachedHash
+}
+
+// Invalidate marks the cached hash as invalid
+func (b *Bucket) Invalidate() {
+	b.hashValid = false
 }
 
 // calculateNumBuckets determines optimal number of buckets for given hash count
@@ -107,22 +128,18 @@ func newMerkleTreeWithBuckets(hashes [][]byte, numBuckets int) *MerkleTree {
 	root := buildTree(buckets)
 
 	return &MerkleTree{
-		Buckets:    buckets,
-		NumBuckets: numBuckets,
-		Root:       root,
+		Buckets:     buckets,
+		NumBuckets:  numBuckets,
+		Root:        root,
+		totalHashes: len(hashes),
 	}
 }
 
 // sortHashes sorts a slice of hashes by their byte values
 func sortHashes(hashes [][]byte) {
-	// Simple insertion sort for small slices
-	for i := 1; i < len(hashes); i++ {
-		j := i
-		for j > 0 && bytes.Compare(hashes[j-1], hashes[j]) > 0 {
-			hashes[j-1], hashes[j] = hashes[j], hashes[j-1]
-			j--
-		}
-	}
+	sort.Slice(hashes, func(i, j int) bool {
+		return bytes.Compare(hashes[i], hashes[j]) < 0
+	})
 }
 
 // buildTree recursively builds the Merkle tree from buckets
@@ -135,7 +152,7 @@ func buildTree(buckets []*Bucket) *MerkleNode {
 	nodes := make([]*MerkleNode, len(buckets))
 	for i, bucket := range buckets {
 		nodes[i] = &MerkleNode{
-			Hash: bucket.ComputeHash(),
+			Hash: bucket.GetHash(),
 		}
 	}
 
@@ -191,7 +208,7 @@ func (mt *MerkleTree) GetRootHash() []byte {
 func (mt *MerkleTree) GetBucketHashes() [][]byte {
 	hashes := make([][]byte, len(mt.Buckets))
 	for i, bucket := range mt.Buckets {
-		hashes[i] = bucket.ComputeHash()
+		hashes[i] = bucket.GetHash()
 	}
 	return hashes
 }
@@ -226,19 +243,22 @@ func (mt *MerkleTree) Insert(hash []byte) bool {
 	}
 
 	// Insert at position
-	bucket.Hashes = append(bucket.Hashes[:insertPos], append([][]byte{hash}, bucket.Hashes[insertPos:]...)...)
+	bucket.Hashes = append(bucket.Hashes, nil)
+	copy(bucket.Hashes[insertPos+1:], bucket.Hashes[insertPos:])
+	bucket.Hashes[insertPos] = hash
+	mt.totalHashes++
 
 	// Check if we need to rebuild with more buckets
-	totalHashes := mt.getTotalHashes()
-	avgPerBucket := float64(totalHashes) / float64(mt.NumBuckets)
+	avgPerBucket := float64(mt.totalHashes) / float64(mt.NumBuckets)
 
-	if avgPerBucket > float64(HASHES_PER_BUCKET*2) {
+	if avgPerBucket > float64(HASHES_PER_BUCKET*REBUILD_UPPER_MULTIPLIER) {
 		// Rebuild with more buckets
 		mt.rebuild()
 		return true
 	}
 
-	// Just rebuild the tree structure (not the buckets)
+	// Invalidate modified bucket and rebuild tree structure
+	mt.Buckets[bucketIdx].Invalidate()
 	mt.Root = buildTree(mt.Buckets)
 	return false
 }
@@ -251,37 +271,34 @@ func (mt *MerkleTree) Delete(hash []byte) bool {
 
 	// Remove from bucket
 	bucket := mt.Buckets[bucketIdx]
+	found := false
 	for i, h := range bucket.Hashes {
 		if bytes.Equal(h, hash) {
 			bucket.Hashes = append(bucket.Hashes[:i], bucket.Hashes[i+1:]...)
+			found = true
 			break
 		}
 	}
 
-	// Check if we need to rebuild with fewer buckets
-	totalHashes := mt.getTotalHashes()
-	if totalHashes > 0 {
-		avgPerBucket := float64(totalHashes) / float64(mt.NumBuckets)
+	if found {
+		mt.totalHashes--
+	}
 
-		if avgPerBucket < float64(HASHES_PER_BUCKET)/4 && mt.NumBuckets > 1 {
+	// Check if we need to rebuild with fewer buckets
+	if mt.totalHashes > 0 {
+		avgPerBucket := float64(mt.totalHashes) / float64(mt.NumBuckets)
+
+		if avgPerBucket < float64(HASHES_PER_BUCKET)/REBUILD_LOWER_DIVISOR && mt.NumBuckets > 1 {
 			// Rebuild with fewer buckets
 			mt.rebuild()
-			return true
+			return found
 		}
 	}
 
-	// Just rebuild the tree structure (not the buckets)
+	// Invalidate modified bucket and rebuild tree structure
+	mt.Buckets[bucketIdx].Invalidate()
 	mt.Root = buildTree(mt.Buckets)
 	return false
-}
-
-// getTotalHashes counts all hashes across all buckets
-func (mt *MerkleTree) getTotalHashes() int {
-	total := 0
-	for _, bucket := range mt.Buckets {
-		total += len(bucket.Hashes)
-	}
-	return total
 }
 
 // rebuild collects all hashes and redistributes them into new buckets
@@ -300,6 +317,7 @@ func (mt *MerkleTree) rebuild() {
 	mt.Buckets = newTree.Buckets
 	mt.NumBuckets = newTree.NumBuckets
 	mt.Root = newTree.Root
+	mt.totalHashes = newTree.totalHashes
 }
 
 // DiffBuckets compares this tree with another and returns indices of buckets that differ

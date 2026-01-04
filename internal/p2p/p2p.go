@@ -14,7 +14,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/notassigned/endershare/internal/safemap"
@@ -74,8 +76,23 @@ func (p *P2PNode) GetPeerId() peer.ID {
 	return p.host.ID()
 }
 
-func (p *P2PNode) GetHost() host.Host {
-	return p.host
+func (p *P2PNode) NewStreamToPeer(peerID peer.ID, protocolID string) (network.Stream, error) {
+	if p.checkPeerAllowed(peerID) {
+		return nil, fmt.Errorf("peer not allowed")
+	}
+	stream, err := p.host.NewStream(context.Background(), peerID, protocol.ID(protocolID))
+	return stream, err
+}
+
+// NewStreamHandler sets a stream handler for authenticated peers
+func (p *P2PNode) NewStreamHandler(protocolID string, handler func(network.Stream)) {
+	p.host.SetStreamHandler(protocol.ID(protocolID), func(s network.Stream) {
+		if !p.checkPeerAllowed(s.Conn().RemotePeer()) {
+			s.Reset()
+			return
+		}
+		handler(s)
+	})
 }
 
 func (p *P2PNode) AddPeer(addrInfo peer.AddrInfo) {

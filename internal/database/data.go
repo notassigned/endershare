@@ -1,7 +1,9 @@
 package database
 
 import (
+	"bytes"
 	"database/sql"
+	"math/big"
 
 	"lukechampine.com/blake3"
 )
@@ -9,11 +11,12 @@ import (
 type DataEntry struct {
 	Key   []byte
 	Value []byte
+	Size  int64
 	Hash  []byte
 }
 
-func (db *EndershareDB) PutData(key []byte, value []byte, hash []byte) error {
-	_, err := db.db.Exec("INSERT OR REPLACE INTO data (key, value, hash) VALUES (?, ?, ?)", key, value, hash)
+func (db *EndershareDB) PutData(key []byte, value []byte, size int64, hash []byte) error {
+	_, err := db.db.Exec("INSERT OR REPLACE INTO data (key, value, size, hash) VALUES (?, ?, ?, ?)", key, value, size, hash)
 	return err
 }
 
@@ -40,7 +43,7 @@ func (db *EndershareDB) DeleteData(key []byte) error {
 }
 
 func (db *EndershareDB) GetAllData() ([]DataEntry, error) {
-	rows, err := db.db.Query("SELECT key, value, hash FROM data")
+	rows, err := db.db.Query("SELECT key, value, size, hash FROM data")
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +52,7 @@ func (db *EndershareDB) GetAllData() ([]DataEntry, error) {
 	var entries []DataEntry
 	for rows.Next() {
 		var entry DataEntry
-		if err := rows.Scan(&entry.Key, &entry.Value, &entry.Hash); err != nil {
+		if err := rows.Scan(&entry.Key, &entry.Value, &entry.Size, &entry.Hash); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
@@ -75,4 +78,167 @@ func (db *EndershareDB) GetDataHash() ([]byte, error) {
 		h.Write(hash)
 	}
 	return h.Sum(nil), nil
+}
+
+// GetAllDataHashes returns all hash column values for merkle tree construction
+func (db *EndershareDB) GetAllDataHashes() [][]byte {
+	rows, err := db.db.Query("SELECT hash FROM data ORDER BY hash")
+	if err != nil {
+		return [][]byte{}
+	}
+	defer rows.Close()
+
+	var hashes [][]byte
+	for rows.Next() {
+		var hash []byte
+		if err := rows.Scan(&hash); err != nil {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes
+}
+
+// GetBucketHashes returns data entry hashes for a specific bucket index
+func (db *EndershareDB) GetBucketHashes(bucketIdx int, numBuckets int) [][]byte {
+	start, end := computeBucketRange(bucketIdx, numBuckets)
+
+	rows, err := db.db.Query("SELECT hash FROM data WHERE hash >= ? AND hash < ? ORDER BY hash", start, end)
+	if err != nil {
+		return [][]byte{}
+	}
+	defer rows.Close()
+
+	var hashes [][]byte
+	for rows.Next() {
+		var hash []byte
+		if err := rows.Scan(&hash); err != nil {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes
+}
+
+// GetDataByHashes returns complete entries for specific hashes
+func (db *EndershareDB) GetDataByHashes(hashes [][]byte) []DataEntry {
+	if len(hashes) == 0 {
+		return []DataEntry{}
+	}
+
+	var entries []DataEntry
+	for _, hash := range hashes {
+		rows, err := db.db.Query("SELECT key, value, size, hash FROM data WHERE hash = ?", hash)
+		if err != nil {
+			continue
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			var entry DataEntry
+			if err := rows.Scan(&entry.Key, &entry.Value, &entry.Size, &entry.Hash); err == nil {
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return entries
+}
+
+// MarkAllStale marks all entries as stale before sync
+func (db *EndershareDB) MarkAllStale() error {
+	_, err := db.db.Exec("UPDATE data SET in_current = 0")
+	return err
+}
+
+// MarkHashCurrent marks a specific hash as current (in_current = 1)
+func (db *EndershareDB) MarkHashCurrent(hash []byte) error {
+	_, err := db.db.Exec("UPDATE data SET in_current = 1 WHERE hash = ?", hash)
+	return err
+}
+
+// GetStaleHashes returns hashes of all stale entries (in_current = 0)
+func (db *EndershareDB) GetStaleHashes() [][]byte {
+	rows, err := db.db.Query("SELECT hash FROM data WHERE in_current = 0")
+	if err != nil {
+		return [][]byte{}
+	}
+	defer rows.Close()
+
+	var hashes [][]byte
+	for rows.Next() {
+		var hash []byte
+		if err := rows.Scan(&hash); err != nil {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes
+}
+
+// DeleteStaleEntries deletes all stale entries (in_current = 0)
+func (db *EndershareDB) DeleteStaleEntries() error {
+	_, err := db.db.Exec("DELETE FROM data WHERE in_current = 0")
+	return err
+}
+
+// SetDownloadProgress updates download progress for a file
+func (db *EndershareDB) SetDownloadProgress(hash []byte, progress int64) error {
+	_, err := db.db.Exec("UPDATE data SET download_progress = ? WHERE hash = ?", progress, hash)
+	return err
+}
+
+// GetDownloadProgress returns download progress for a file (0 if not started, -1 if complete)
+func (db *EndershareDB) GetDownloadProgress(hash []byte) int64 {
+	rows, err := db.db.Query("SELECT download_progress FROM data WHERE hash = ?", hash)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var progress int64
+		if err := rows.Scan(&progress); err != nil {
+			return 0
+		}
+		return progress
+	}
+	return 0
+}
+
+// computeBucketRange calculates the hash range for a bucket index
+// This matches the logic in merkletree.go:getBucketIndex()
+func computeBucketRange(bucketIdx int, numBuckets int) ([]byte, []byte) {
+	if numBuckets <= 1 {
+		// Single bucket covers entire hash space
+		start := make([]byte, 32)
+		end := bytes.Repeat([]byte{0xFF}, 32)
+		return start, end
+	}
+
+	// Calculate bucket size: 2^256 / numBuckets
+	maxHash := new(big.Int).Lsh(big.NewInt(1), 256) // 2^256
+	bucketSize := new(big.Int).Div(maxHash, big.NewInt(int64(numBuckets)))
+
+	// Calculate start: bucketIdx * bucketSize
+	startInt := new(big.Int).Mul(big.NewInt(int64(bucketIdx)), bucketSize)
+
+	// Calculate end: (bucketIdx + 1) * bucketSize
+	endInt := new(big.Int).Mul(big.NewInt(int64(bucketIdx+1)), bucketSize)
+
+	// Handle last bucket to cover remainder
+	if bucketIdx == numBuckets-1 {
+		endInt = new(big.Int).Set(maxHash)
+	}
+
+	// Convert to byte slices (pad to 32 bytes)
+	start := make([]byte, 32)
+	end := make([]byte, 32)
+
+	startBytes := startInt.Bytes()
+	endBytes := endInt.Bytes()
+
+	copy(start[32-len(startBytes):], startBytes)
+	copy(end[32-len(endBytes):], endBytes)
+
+	return start, end
 }

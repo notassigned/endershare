@@ -72,9 +72,9 @@ func (s *Storage) AddFile(localPath string, name string, folderID int) error {
 		return err
 	}
 
-	hash := crypto.ComputeDataHash(append(encryptedKey, fileHash...))
+	hash := crypto.ComputeDataHash(encryptedKey, fileHash, size)
 
-	return s.db.PutData(encryptedKey, fileHash, hash)
+	return s.db.PutData(encryptedKey, fileHash, size, hash)
 }
 
 // GetFile exports a file from encrypted storage to local filesystem
@@ -126,9 +126,9 @@ func (s *Storage) CreateFolder(name string, parentFolderID int) (int, error) {
 		return 0, err
 	}
 
-	hash := crypto.ComputeDataHash(encryptedKey)
+	hash := crypto.ComputeDataHash(encryptedKey, nil, 0)
 
-	if err := s.db.PutData(encryptedKey, nil, hash); err != nil {
+	if err := s.db.PutData(encryptedKey, nil, 0, hash); err != nil {
 		return 0, err
 	}
 
@@ -219,4 +219,40 @@ func (s *Storage) ListFolder(folderID int) ([]interface{}, error) {
 	}
 
 	return results, nil
+}
+
+// FileExists checks if a file exists in storage by its hash
+func (s *Storage) FileExists(fileHash []byte) bool {
+	filePath := filepath.Join(s.dataDir, hexEncode(fileHash))
+	_, err := os.Stat(filePath)
+	return err == nil
+}
+
+// OpenFileForReading opens a file for reading and returns the file handle and total size
+func (s *Storage) OpenFileForReading(fileHash []byte) (*os.File, int64, error) {
+	filePath := filepath.Join(s.dataDir, hexEncode(fileHash))
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, 0, err
+	}
+	stat, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, 0, err
+	}
+	return file, stat.Size(), nil
+}
+
+// AppendFileData appends data to a file (for resumable downloads)
+func (s *Storage) AppendFileData(fileHash []byte, data []byte) error {
+	filePath := filepath.Join(s.dataDir, hexEncode(fileHash))
+
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Write(data)
+	return err
 }
