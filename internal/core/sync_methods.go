@@ -14,8 +14,12 @@ import (
 
 const FILE_STREAM_CHUNK_SIZE = 64 * 1024
 
-// HandleGetPeerList returns the full peer list (for p2p handler)
-func (c *Core) HandleGetPeerList() []PeerInfoResponse {
+// Stream handler methods for p2p protocol handlers
+
+// handlePeerListRequest handles requests for the full peer list
+func (c *Core) handlePeerListRequest(s network.Stream) {
+	defer s.Close()
+
 	peers := c.db.GetPeers()
 
 	response := []PeerInfoResponse{}
@@ -31,32 +35,6 @@ func (c *Core) HandleGetPeerList() []PeerInfoResponse {
 		})
 	}
 
-	return response
-}
-
-// HandleGetTreeBucketHashes returns merkle tree bucket hashes
-func (c *Core) HandleGetTreeBucketHashes(numBuckets int) [][]byte {
-	if c.merkleTree == nil || c.merkleTree.GetNumBuckets() != numBuckets {
-		// Tree structure mismatch
-		return [][]byte{}
-	}
-
-	return c.merkleTree.GetBucketHashes()
-}
-
-// HandleGetDataBucketHashes returns data entry hashes for a bucket
-func (c *Core) HandleGetDataBucketHashes(bucketIdx int, numBuckets int) [][]byte {
-	return c.db.GetBucketHashes(bucketIdx, numBuckets)
-}
-
-// Stream handler methods for p2p protocol handlers
-
-// handlePeerListRequest handles requests for the full peer list
-func (c *Core) handlePeerListRequest(s network.Stream) {
-	defer s.Close()
-
-	response := c.HandleGetPeerList()
-
 	encoder := json.NewEncoder(s)
 	encoder.Encode(response)
 }
@@ -70,8 +48,13 @@ func (c *Core) handleTreeBucketHashesRequest(s network.Stream) {
 	if err := decoder.Decode(&req); err != nil {
 		return
 	}
-
-	response := c.HandleGetTreeBucketHashes(req.NumBuckets)
+	var response [][]byte
+	if c.merkleTree == nil || c.merkleTree.GetNumBuckets() != req.NumBuckets {
+		// Tree structure mismatch
+		return
+	} else {
+		response = c.merkleTree.GetBucketHashes()
+	}
 
 	encoder := json.NewEncoder(s)
 	encoder.Encode(response)
@@ -87,7 +70,7 @@ func (c *Core) handleDataBucketHashesRequest(s network.Stream) {
 		return
 	}
 
-	response := c.HandleGetDataBucketHashes(req.BucketIndex, req.NumBuckets)
+	response := c.db.GetBucketHashes(req.BucketIndex, req.NumBuckets)
 
 	encoder := json.NewEncoder(s)
 	encoder.Encode(response)
@@ -313,12 +296,6 @@ func (c *Core) RequestMetadata(from peer.ID, hashes [][]byte) ([]MetadataEntry, 
 	return entries, nil
 }
 
-// RequestFileData requests file data from a peer with offset support
-func (c *Core) RequestFileData(from peer.ID, fileHash []byte, offset int64, length int64) ([]byte, int64, error) {
-	// TODO: Implement libp2p stream request
-	return []byte{}, 0, nil
-}
-
 // containsHash checks if a hash exists in a slice of hashes
 func containsHash(hashes [][]byte, target []byte) bool {
 	for _, h := range hashes {
@@ -348,65 +325,87 @@ func (c *Core) deleteData(key, hash []byte) error {
 // updateDataHash updates the data_hash node property from the merkle tree root
 func (c *Core) updateDataHash() {
 	rootHash := c.merkleTree.GetRootHash()
-	c.db.SetNodeProperty("data_hash", base64Encode(rootHash))
+	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(rootHash))
 }
 
 // downloadFile downloads a file from a peer with resumable support
-func (c *Core) downloadFile(from peer.ID, fileHash []byte) error {
+func (c *Core) downloadFile(from peer.ID, fileHash []byte, fileSize int64) error {
 	if c.storage == nil {
 		return nil
 	}
 
-	// Check if file already exists
-	if c.storage.FileExists(fileHash) {
-		return nil
-	}
-
-	// Check for partial download
 	offset := c.db.GetDownloadProgress(fileHash)
-	if offset < 0 {
-		// Already complete
+	if offset == fileSize {
 		return nil
 	}
 
-	for {
-		// Request chunk (1MB at a time)
-		data, totalSize, err := c.RequestFileData(from, fileHash, offset, 1024*1024)
-		if err != nil {
-			return err
+	stream, err := c.p2pNode.NewStreamToPeer(from, "/endershare/file-data/1.0")
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+
+	req := FileDataRequest{
+		FileHash: fileHash,
+		Offset:   offset,
+		Length:   fileSize - offset,
+	}
+
+	encoder := json.NewEncoder(stream)
+	if err := encoder.Encode(req); err != nil {
+		return err
+	}
+
+	const WRITE_BUFFER_SIZE = 20 * 1024 * 1024
+	buffer := make([]byte, 0, WRITE_BUFFER_SIZE)
+	chunk := make([]byte, FILE_STREAM_CHUNK_SIZE)
+	totalWritten := int64(0)
+	eof := false
+
+	for totalWritten < req.Length {
+		buffer = buffer[:0] // Reuse buffer capacity
+
+		for len(buffer) < WRITE_BUFFER_SIZE && totalWritten+int64(len(buffer)) < req.Length && !eof {
+			n, err := stream.Read(chunk)
+			if n > 0 {
+				buffer = append(buffer, chunk[:n]...)
+			}
+			if err != nil {
+				if err == io.EOF {
+					eof = true
+					break
+				}
+				return err
+			}
 		}
 
-		// Append to file
-		if err := c.storage.AppendFileData(fileHash, data); err != nil {
-			return err
-		}
-
-		offset += int64(len(data))
-
-		// Update progress
-		c.db.SetDownloadProgress(fileHash, offset)
-
-		// Check if complete
-		if offset >= totalSize {
-			c.db.SetDownloadProgress(fileHash, -1) // Mark complete
+		if len(buffer) == 0 {
 			break
 		}
 
-		// If no more data returned, we're done
-		if len(data) == 0 {
-			break
+		if err := c.storage.AppendFileData(fileHash, buffer); err != nil {
+			return err
+		}
+
+		totalWritten += int64(len(buffer))
+
+		if err := c.db.SetDownloadProgress(fileHash, offset+totalWritten); err != nil {
+			return err
 		}
 	}
 
-	return nil
-}
+	if totalWritten != req.Length {
+		return fmt.Errorf("incomplete download: expected %d bytes, got %d", req.Length, totalWritten)
+	}
 
-// Helper functions
+	if err := c.db.SetDownloadProgress(fileHash, fileSize); err != nil {
+		return err
+	}
 
-func base64Encode(data []byte) string {
-	return base64.StdEncoding.EncodeToString(data)
-}
-
-func base64Decode(s string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(s)
+	//Verify downloaded file hash and remove the file if invalid
+	err = c.storage.VerifyFile(fileHash)
+	if err != nil {
+		c.db.SetDownloadProgress(fileHash, 0)
+	}
+	return err
 }

@@ -1,14 +1,17 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
+	"lukechampine.com/blake3"
 )
 
 type Storage struct {
@@ -255,4 +258,36 @@ func (s *Storage) AppendFileData(fileHash []byte, data []byte) error {
 
 	_, err = file.Write(data)
 	return err
+}
+
+// VerifyFile verifies the hash of a stored file and removes it if invalid
+func (s *Storage) VerifyFile(fileHash []byte) error {
+	f, _, err := s.OpenFileForReading(fileHash)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	hasher := blake3.New(32, nil)
+	buf := make([]byte, 64*1024) // 64KB buffer
+
+	for {
+		n, err := f.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		hasher.Write(buf[:n])
+	}
+
+	computedHash := hasher.Sum(nil)
+	if !bytes.Equal(computedHash, fileHash) {
+		f.Close()
+		os.Remove(f.Name())
+		return fmt.Errorf("file hash verification failed")
+	}
+
+	return nil
 }

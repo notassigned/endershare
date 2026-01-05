@@ -208,7 +208,7 @@ func (c *Core) applyDataUpdate(updateData interface{}, from peer.ID) error {
 
 		// Download file if Value is not nil (folders have nil value)
 		if dataUpdate.Value != nil {
-			if err := c.downloadFile(from, dataUpdate.Value); err != nil {
+			if err := c.downloadFile(from, dataUpdate.Value, dataUpdate.Size); err != nil {
 				fmt.Printf("Warning: failed to download file: %v\n", err)
 			}
 		}
@@ -282,7 +282,7 @@ func (c *Core) syncDataFull(update Update, from peer.ID) error {
 
 			// Request file if Value is not nil (folders have nil value)
 			if metadata.Value != nil {
-				if err := c.downloadFile(from, metadata.Value); err != nil {
+				if err := c.downloadFile(from, metadata.Value, metadata.Size); err != nil {
 					fmt.Printf("Warning: failed to download file: %v\n", err)
 				}
 			}

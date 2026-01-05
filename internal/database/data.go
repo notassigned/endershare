@@ -187,7 +187,7 @@ func (db *EndershareDB) SetDownloadProgress(hash []byte, progress int64) error {
 	return err
 }
 
-// GetDownloadProgress returns download progress for a file (0 if not started, -1 if complete)
+// GetDownloadProgress returns download progress for a file (0 if not started, size of the file if complete)
 func (db *EndershareDB) GetDownloadProgress(hash []byte) int64 {
 	rows, err := db.db.Query("SELECT download_progress FROM data WHERE hash = ?", hash)
 	if err != nil {
