@@ -70,7 +70,15 @@ func (c *Core) handleDataBucketHashesRequest(s network.Stream) {
 		return
 	}
 
-	response := c.db.GetBucketHashes(req.BucketIndex, req.NumBuckets)
+	// Build response for each requested bucket
+	response := make([]DataBucketHashesResponse, 0, len(req.BucketIndices))
+	for _, bucketIdx := range req.BucketIndices {
+		hashes := c.db.GetBucketHashes(bucketIdx, req.NumBuckets)
+		response = append(response, DataBucketHashesResponse{
+			BucketIndex: bucketIdx,
+			Hashes:      hashes,
+		})
+	}
 
 	encoder := json.NewEncoder(s)
 	encoder.Encode(response)
@@ -217,10 +225,16 @@ type TreeBucketHashesRequest struct {
 	NumBuckets int `json:"num_buckets"`
 }
 
-// DataBucketHashesRequest requests data entry hashes for a bucket
+// DataBucketHashesRequest requests data entry hashes for multiple buckets
 type DataBucketHashesRequest struct {
-	BucketIndex int `json:"bucket_index"`
-	NumBuckets  int `json:"num_buckets"`
+	BucketIndices []int `json:"bucket_indices"`
+	NumBuckets    int   `json:"num_buckets"`
+}
+
+// DataBucketHashesResponse contains hashes for a specific bucket
+type DataBucketHashesResponse struct {
+	BucketIndex int      `json:"bucket_index"`
+	Hashes      [][]byte `json:"hashes"`
 }
 
 // FileDataRequest requests file data with offset support
@@ -234,14 +248,67 @@ type FileDataRequest struct {
 
 // RequestTreeBucketHashes requests merkle tree bucket hashes from a peer
 func (c *Core) RequestTreeBucketHashes(from peer.ID, numBuckets int) [][]byte {
-	// TODO: Implement libp2p stream request
-	return [][]byte{}
+	// Open stream to peer
+	stream, err := c.p2pNode.NewStreamToPeer(from, "/endershare/tree-bucket-hashes/1.0")
+	if err != nil {
+		return [][]byte{}
+	}
+	defer stream.Close()
+
+	// Encode request
+	req := TreeBucketHashesRequest{NumBuckets: numBuckets}
+	encoder := json.NewEncoder(stream)
+	if err := encoder.Encode(req); err != nil {
+		return [][]byte{}
+	}
+
+	// Decode response
+	var response [][]byte
+	decoder := json.NewDecoder(stream)
+	if err := decoder.Decode(&response); err != nil {
+		return [][]byte{}
+	}
+
+	return response
 }
 
-// RequestDataBucketHashes requests data entry hashes for a bucket from a peer
-func (c *Core) RequestDataBucketHashes(from peer.ID, bucketIdx int, numBuckets int) [][]byte {
-	// TODO: Implement libp2p stream request
-	return [][]byte{}
+// RequestDataBucketHashes requests data entry hashes for multiple buckets from a peer
+func (c *Core) RequestDataBucketHashes(from peer.ID, bucketIndices []int, numBuckets int) map[int][][]byte {
+	if len(bucketIndices) == 0 {
+		return map[int][][]byte{}
+	}
+
+	// Open stream to peer
+	stream, err := c.p2pNode.NewStreamToPeer(from, "/endershare/data-bucket-hashes/1.0")
+	if err != nil {
+		return map[int][][]byte{}
+	}
+	defer stream.Close()
+
+	// Encode request
+	req := DataBucketHashesRequest{
+		BucketIndices: bucketIndices,
+		NumBuckets:    numBuckets,
+	}
+	encoder := json.NewEncoder(stream)
+	if err := encoder.Encode(req); err != nil {
+		return map[int][][]byte{}
+	}
+
+	// Decode response
+	var response []DataBucketHashesResponse
+	decoder := json.NewDecoder(stream)
+	if err := decoder.Decode(&response); err != nil {
+		return map[int][][]byte{}
+	}
+
+	// Convert response array to map
+	result := make(map[int][][]byte, len(response))
+	for _, bucketResp := range response {
+		result[bucketResp.BucketIndex] = bucketResp.Hashes
+	}
+
+	return result
 }
 
 // RequestMetadata requests metadata for a list of hashes from a peer

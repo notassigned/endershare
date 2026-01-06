@@ -254,9 +254,12 @@ func (c *Core) syncDataFull(update Update, from peer.ID) error {
 
 	hashesToDownload := [][]byte{} // Data entry hashes needing metadata/files
 
+	// Batch request all differing buckets at once
+	peerBucketHashes := c.RequestDataBucketHashes(from, diffBucketIndices, update.NumBuckets)
+
 	for _, bucketIdx := range diffBucketIndices {
-		// Request data entry hashes in this bucket from peer
-		peerDataHashes := c.RequestDataBucketHashes(from, bucketIdx, update.NumBuckets)
+		// Get peer and local data hashes for this bucket
+		peerDataHashes := peerBucketHashes[bucketIdx]
 		localDataHashes := c.db.GetBucketHashes(bucketIdx, update.NumBuckets)
 
 		// Mark peer hashes as current
