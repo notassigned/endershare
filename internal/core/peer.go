@@ -74,8 +74,12 @@ func PeerMain(initMode bool) {
 		fmt.Println("Warning: No master public key available, cannot manage connections yet")
 	}
 
-	// Wait indefinitely
-	select {}
+	// Wait indefinitely, periodically requesting latest updates
+	t := time.NewTicker(time.Second * 15)
+	for {
+		c.RequestLatestUpdate()
+		<-t.C
+	}
 }
 
 // BindMain is called by a master node to authorize a new replica peer
@@ -190,6 +194,11 @@ func coreStartupWithMnemonic(mnemonic string) *Core {
 	return c
 }
 
+// RequestLatestUpdate sends a request to all peers for their latest update
+func (c *Core) RequestLatestUpdate() {
+	c.notify("request_latest_update", nil)
+}
+
 // PublishPeerUpdate creates and broadcasts a peer update (ADD or REMOVE)
 func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) error {
 	// Get current state
@@ -264,6 +273,5 @@ func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) e
 		return fmt.Errorf("failed to marshal signed update: %w", err)
 	}
 
-	notification := append([]byte("update\n"), notificationJSON...)
-	return c.p2pNode.PublishNotification(notification)
+	return c.notify("update", notificationJSON)
 }

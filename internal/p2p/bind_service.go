@@ -106,7 +106,7 @@ func BindNewPeer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKe
 	ctx, cancelDiscover := context.WithCancel(context.Background())
 	defer cancelDiscover()
 	fmt.Printf("Discovering peer with phrase: `%s`\n", syncPhrase)
-	nodes, err := node.DiscoverPeers(ctx, syncPhrase)
+	nodes, err := node.discoverPeers(ctx, syncPhrase)
 	if err != nil {
 		return nil, err
 	}

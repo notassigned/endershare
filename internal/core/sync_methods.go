@@ -402,8 +402,8 @@ func (c *Core) downloadFile(from peer.ID, fileHash []byte, fileSize int64) error
 		return err
 	}
 
-	//Verify downloaded file hash and remove the file if invalid
-	err = c.storage.VerifyFile(fileHash)
+	//Verify downloaded file hash matches and remove the file if invalid
+	err = c.storage.ValidateOrRemoveFile(fileHash)
 	if err != nil {
 		c.db.SetDownloadProgress(fileHash, 0)
 	}

@@ -134,7 +134,7 @@ func (p *P2PNode) setupDiscovery(ctx context.Context) error {
 	return nil
 }
 
-func (p *P2PNode) DiscoverPeers(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
+func (p *P2PNode) discoverPeers(ctx context.Context, rendesvous string) (<-chan peer.AddrInfo, error) {
 	key := sha256.Sum256(append([]byte("endershare-rendezvous"), []byte(rendesvous)...))
 
 	peers, err := p.discovery.FindPeers(ctx, string(key[:]), discovery.TTL(time.Hour))
@@ -161,7 +161,7 @@ func (p *P2PNode) ManageConnections(ctx context.Context, key string) {
 		fmt.Println("Error advertising:", err)
 	}
 
-	peers, err := p.DiscoverPeers(ctx, key)
+	peers, err := p.discoverPeers(ctx, key)
 	if err != nil {
 		fmt.Println("Error enabling discovery:", err)
 	}

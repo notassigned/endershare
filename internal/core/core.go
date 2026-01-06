@@ -12,11 +12,12 @@ import (
 )
 
 type Core struct {
-	p2pNode    *p2p.P2PNode
-	keys       *crypto.CryptoKeys
-	db         *database.EndershareDB
-	storage    *storage.Storage
-	merkleTree *crypto.MerkleTree
+	p2pNode       *p2p.P2PNode
+	keys          *crypto.CryptoKeys
+	db            *database.EndershareDB
+	storage       *storage.Storage
+	merkleTree    *crypto.MerkleTree
+	publishUpdate func([]byte) error
 }
 
 func coreStartup(initMode bool) *Core {

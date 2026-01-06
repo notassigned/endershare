@@ -260,8 +260,8 @@ func (s *Storage) AppendFileData(fileHash []byte, data []byte) error {
 	return err
 }
 
-// VerifyFile verifies the hash of a stored file and removes it if invalid
-func (s *Storage) VerifyFile(fileHash []byte) error {
+// ValidateOrRemoveFile verifies the hash of a stored file and removes it if invalid
+func (s *Storage) ValidateOrRemoveFile(fileHash []byte) error {
 	f, _, err := s.OpenFileForReading(fileHash)
 	if err != nil {
 		return err

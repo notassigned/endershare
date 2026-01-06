@@ -50,6 +50,9 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal signed update: %w", err)
 	}
+	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
+
+	//Log to db for debug
 	c.db.InsertSignedUpdate(signedUpdate.Update.UpdateID, string(signedUpdateJSON))
 
 	return nil

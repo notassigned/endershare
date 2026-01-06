@@ -2,25 +2,29 @@ package p2p
 
 import (
 	"context"
+	"encoding/hex"
 
 	gossipsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]byte, peer.ID)) error {
-	gossip, err := gossipsub.NewGossipSub(ctx, p.host, gossipsub.WithPeerFilter(p.filterNotifyPeers))
+func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]byte, peer.ID), topicID []byte) (publishNotification func([]byte) error, err error) {
+	gossip, err := gossipsub.NewGossipSub(ctx,
+		p.host,
+		gossipsub.WithPeerFilter(p.filterNotifyPeers),
+		gossipsub.WithDiscovery(p.discovery))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	topic, err := gossip.Join("endershare-1.0")
+	topic, err := gossip.Join(hex.EncodeToString(topicID))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sub, err := topic.Subscribe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	go func() {
@@ -34,11 +38,9 @@ func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]by
 		}
 	}()
 	p.notifyTopic = topic
-	return nil
-}
-
-func (p *P2PNode) PublishNotification(data []byte) error {
-	return p.notifyTopic.Publish(context.Background(), data)
+	return func(data []byte) error {
+		return p.notifyTopic.Publish(context.Background(), data)
+	}, nil
 }
 
 func (p *P2PNode) filterNotifyPeers(peerID peer.ID, topic string) bool {
