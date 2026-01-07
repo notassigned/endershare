@@ -273,15 +273,15 @@ func (c *Core) RequestTreeBucketHashes(from peer.ID, numBuckets int) [][]byte {
 }
 
 // RequestDataBucketHashes requests data entry hashes for multiple buckets from a peer
-func (c *Core) RequestDataBucketHashes(from peer.ID, bucketIndices []int, numBuckets int) map[int][][]byte {
+func (c *Core) RequestDataBucketHashes(from peer.ID, bucketIndices []int, numBuckets int) (map[int][][]byte, error) {
 	if len(bucketIndices) == 0 {
-		return map[int][][]byte{}
+		return map[int][][]byte{}, nil
 	}
 
 	// Open stream to peer
 	stream, err := c.p2pNode.NewStreamToPeer(from, "/endershare/data-bucket-hashes/1.0")
 	if err != nil {
-		return map[int][][]byte{}
+		return nil, err
 	}
 	defer stream.Close()
 
@@ -292,14 +292,14 @@ func (c *Core) RequestDataBucketHashes(from peer.ID, bucketIndices []int, numBuc
 	}
 	encoder := json.NewEncoder(stream)
 	if err := encoder.Encode(req); err != nil {
-		return map[int][][]byte{}
+		return nil, err
 	}
 
 	// Decode response
 	var response []DataBucketHashesResponse
 	decoder := json.NewDecoder(stream)
 	if err := decoder.Decode(&response); err != nil {
-		return map[int][][]byte{}
+		return nil, err
 	}
 
 	// Convert response array to map
@@ -308,7 +308,13 @@ func (c *Core) RequestDataBucketHashes(from peer.ID, bucketIndices []int, numBuc
 		result[bucketResp.BucketIndex] = bucketResp.Hashes
 	}
 
-	return result
+	for _, idx := range bucketIndices {
+		if _, exists := result[idx]; !exists {
+			return nil, fmt.Errorf("missing bucket index %d in response", idx)
+		}
+	}
+
+	return result, nil
 }
 
 // RequestMetadata requests metadata for a list of hashes from a peer
