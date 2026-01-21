@@ -38,7 +38,7 @@ func (db *EndershareDB) GetKeys() *crypto.CryptoKeys {
 		count++
 	}
 
-	if count < 3 {
+	if count < 3 || keys["master_private_key"] == "" || keys["peer_private_key"] == "" || keys["aes_key"] == "" {
 		return nil
 	}
 

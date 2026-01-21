@@ -27,3 +27,9 @@ func (sm *SafeMap[K, V]) Load(key K) (V, bool) {
 	val, ok := sm.m[key]
 	return val, ok
 }
+
+func (sm *SafeMap[K, V]) Clear() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.m = make(map[K]V)
+}

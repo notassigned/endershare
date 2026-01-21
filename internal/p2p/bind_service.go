@@ -22,15 +22,22 @@ import (
 
 const bindProtocolID = "/endershare/bind/1.0"
 
+type PeerListEntry struct {
+	PeerID    string
+	Addresses []string
+}
+
 type ClientInfoMsg struct {
 	MasterPublicKeyBase64 string
 	PeerID                string
+	PeerList              []PeerListEntry
 }
 
 type ClientInfo struct {
 	MasterPublicKey ed25519.PublicKey
 	PeerID          peer.ID
 	AddrInfo        peer.AddrInfo
+	PeerList        []peer.AddrInfo
 }
 
 type challengeResponse struct {
@@ -49,7 +56,7 @@ func BindToClient(node *P2PNode) (*ClientInfo, error) {
 	syncPhrase := newMnemonic(4)
 	ctx, cancelAdvert := context.WithCancel(context.Background())
 	defer cancelAdvert()
-	node.Advertize(ctx, syncPhrase)
+	node.Advertize(ctx, syncPhrase, time.Hour)
 	//create mutex to rate limit this service and prevent brute forcing
 	var mutex sync.Mutex
 	clientInfo := make(chan *ClientInfo, 1)
@@ -101,8 +108,8 @@ func BindToClient(node *P2PNode) (*ClientInfo, error) {
 
 // BindNewPeer is called by a master node to authorize a new replica node
 // It discovers the new peer using the sync phrase, verifies mutual knowledge,
-// and sends the master public key and signature to the new peer
-func BindNewPeer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey, masterPrivKey ed25519.PrivateKey) (*peer.AddrInfo, error) {
+// and sends the master public key and peer list to the new peer
+func BindNewPeer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKey, masterPrivKey ed25519.PrivateKey, existingPeers []peer.AddrInfo) (*peer.AddrInfo, error) {
 	ctx, cancelDiscover := context.WithCancel(context.Background())
 	defer cancelDiscover()
 	fmt.Printf("Discovering peer with phrase: `%s`\n", syncPhrase)
@@ -132,10 +139,24 @@ func BindNewPeer(syncPhrase string, node *P2PNode, masterPubKey ed25519.PublicKe
 		if verifiedPeer {
 			fmt.Println("Successfully verified peer:", peerInfo.ID)
 
-			// Send master public key
+			// Build peer list entries
+			peerList := make([]PeerListEntry, 0, len(existingPeers))
+			for _, p := range existingPeers {
+				addrs := make([]string, 0, len(p.Addrs))
+				for _, addr := range p.Addrs {
+					addrs = append(addrs, addr.String())
+				}
+				peerList = append(peerList, PeerListEntry{
+					PeerID:    p.ID.String(),
+					Addresses: addrs,
+				})
+			}
+
+			// Send master public key and peer list
 			c := &ClientInfoMsg{
 				MasterPublicKeyBase64: base64.StdEncoding.EncodeToString(masterPubKey),
 				PeerID:                peerInfo.ID.String(),
+				PeerList:              peerList,
 			}
 			jsonData, err := json.Marshal(c)
 			if err != nil {
@@ -237,9 +258,29 @@ func clientInfoMsgToClientInfo(msg *ClientInfoMsg) (*ClientInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Parse peer list
+	var peerList []peer.AddrInfo
+	for _, entry := range msg.PeerList {
+		pid, err := peer.Decode(entry.PeerID)
+		if err != nil {
+			continue
+		}
+		var addrs []multiaddr.Multiaddr
+		for _, addrStr := range entry.Addresses {
+			addr, err := multiaddr.NewMultiaddr(addrStr)
+			if err != nil {
+				continue
+			}
+			addrs = append(addrs, addr)
+		}
+		peerList = append(peerList, peer.AddrInfo{ID: pid, Addrs: addrs})
+	}
+
 	return &ClientInfo{
 		MasterPublicKey: ed25519.PublicKey(masterPubKeyBytes),
 		PeerID:          peerID,
+		PeerList:        peerList,
 	}, nil
 }
 
@@ -251,4 +292,58 @@ func newMnemonic(numWords int) string {
 		words[i] = wordList[n.Int64()]
 	}
 	return strings.Join(words, " ")
+}
+
+// StartBindingService is a non-blocking version of BindToClient for UI use.
+// Returns a channel that will receive the ClientInfo when binding completes,
+// and the sync phrase to display to the user.
+func StartBindingService(node *P2PNode, ctx context.Context) (<-chan *ClientInfo, string, error) {
+	syncPhrase := newMnemonic(4)
+	node.Advertize(ctx, syncPhrase, time.Hour)
+
+	var mutex sync.Mutex
+	clientInfo := make(chan *ClientInfo, 1)
+
+	node.host.SetStreamHandler(bindProtocolID, func(s network.Stream) {
+		mutex.Lock()
+		defer mutex.Unlock()
+		defer s.Close()
+		time.Sleep(time.Millisecond * 250)
+
+		verifiedPeer, err := mutualVerification(s, syncPhrase)
+		if err == nil && verifiedPeer {
+			c := &ClientInfoMsg{}
+			buf := new(bytes.Buffer)
+			_, err = buf.ReadFrom(s)
+			if err != nil {
+				fmt.Println("Error reading client info:", err)
+				return
+			}
+			err = json.Unmarshal(buf.Bytes(), c)
+			if err != nil {
+				fmt.Println("Error unmarshaling client info:", err)
+				return
+			}
+			info, err := clientInfoMsgToClientInfo(c)
+			if err != nil {
+				fmt.Println("Error converting client info message:", err)
+				return
+			}
+			info.AddrInfo = peer.AddrInfo{
+				ID:    info.PeerID,
+				Addrs: []multiaddr.Multiaddr{s.Conn().RemoteMultiaddr()},
+			}
+			clientInfo <- info
+			node.host.RemoveStreamHandler(bindProtocolID)
+		}
+	})
+
+	// Clean up handler when context is cancelled
+	go func() {
+		<-ctx.Done()
+		node.host.RemoveStreamHandler(bindProtocolID)
+		close(clientInfo)
+	}()
+
+	return clientInfo, syncPhrase, nil
 }

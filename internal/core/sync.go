@@ -19,33 +19,39 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 		return fmt.Errorf("invalid update signature")
 	}
 
-	// 2. Check if we've already processed this update
+	// 2. Parse the update
+	update, err := signedUpdate.GetUpdate()
+	if err != nil {
+		return fmt.Errorf("failed to parse update: %w", err)
+	}
+
+	// 3. Check if we've already processed this update
 	currentIDStr, err := c.db.GetNodeProperty("current_update_id")
 	if err != nil {
 		currentIDStr = "0"
 	}
 	currentID, _ := strconv.ParseUint(currentIDStr, 10, 64)
 
-	if signedUpdate.Update.UpdateID <= currentID {
+	if update.UpdateID <= currentID {
 		return nil
 	}
 
-	// 3. Sync peer list if needed
-	if err := c.syncPeerList(signedUpdate.Update, from); err != nil {
+	// 4. Sync peer list if needed
+	if err := c.syncPeerList(update, from); err != nil {
 		return fmt.Errorf("failed to sync peer list: %w", err)
 	}
 
-	// 4. Sync data if needed
-	if err := c.syncData(signedUpdate.Update, from); err != nil {
+	// 5. Sync data if needed
+	if err := c.syncData(update, from); err != nil {
 		return fmt.Errorf("failed to sync data: %w", err)
 	}
 
-	// 5. Update node state
-	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", signedUpdate.Update.UpdateID))
-	c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(signedUpdate.Update.PeerListHash))
-	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(signedUpdate.Update.DataHash))
+	// 6. Update node state
+	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
+	c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(update.PeerListHash))
+	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(update.DataHash))
 
-	// 6. Store update in database
+	// 7. Store update in database
 	signedUpdateJSON, err := json.Marshal(signedUpdate)
 	if err != nil {
 		return fmt.Errorf("failed to marshal signed update: %w", err)
@@ -53,7 +59,7 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
 
 	//Log to db for debug
-	c.db.InsertSignedUpdate(signedUpdate.Update.UpdateID, string(signedUpdateJSON))
+	c.db.InsertSignedUpdate(update.UpdateID, string(signedUpdateJSON))
 
 	return nil
 }

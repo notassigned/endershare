@@ -24,11 +24,12 @@ func (c *Core) setupNotifyService(ctx context.Context) error {
 			return
 		}
 		msgContent := buf.Bytes()
+		fmt.Println("Recvd", msgType, ":", string(msgContent))
 
 		switch strings.TrimSpace(msgType) {
 		case "update":
 			c.handleUpdate(msgContent, from)
-		case "latest_update_request":
+		case "request_latest_update":
 			c.handleLatestUpdateRequest()
 		default:
 			return

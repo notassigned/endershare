@@ -33,7 +33,9 @@ func (p *P2PNode) StartNotifyService(ctx context.Context, notification func([]by
 			if err != nil {
 				return
 			}
-
+			if msg.ReceivedFrom == p.host.ID() {
+				continue
+			}
 			notification(msg.Message.Data, msg.ReceivedFrom)
 		}
 	}()

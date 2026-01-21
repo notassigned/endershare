@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"lukechampine.com/blake3"
@@ -21,12 +22,12 @@ type Update struct {
 }
 
 type SignedUpdate struct {
-	Update    Update `json:"update"`
-	Signature []byte `json:"signature"`
+	UpdateBytes []byte `json:"update_bytes"` // Canonical JSON bytes of the update
+	Signature   []byte `json:"signature"`
 }
 
 type PeerUpdate struct {
-	Action    string   `json:"action"`               // "ADD" or "REMOVE"
+	Action    string   `json:"action"` // "ADD" or "REMOVE"
 	PeerID    string   `json:"peer_id"`
 	Addresses []string `json:"addresses,omitempty"` // Only for ADD
 }
@@ -56,17 +57,26 @@ func ComputePeerListHash(peerIDs []string) []byte {
 	return hasher.Sum(nil)
 }
 
-// ComputeDataHash placeholder - returns zero hash until merkle tree is implemented
-func ComputeDataHash(hashes [][]byte) []byte {
-	// TODO: Implement merkle root computation
-	return make([]byte, 32)
+// VerifySignedUpdate verifies the signature over the canonical update bytes
+func VerifySignedUpdate(signedUpdate SignedUpdate, publicKey ed25519.PublicKey) bool {
+	return ed25519.Verify(publicKey, signedUpdate.UpdateBytes, signedUpdate.Signature)
 }
 
-// VerifySignedUpdate verifies the signature over the Update JSON
-func VerifySignedUpdate(signedUpdate SignedUpdate, publicKey ed25519.PublicKey) bool {
-	updateJSON, err := json.Marshal(signedUpdate.Update)
+// GetUpdate unmarshals the Update from SignedUpdate.UpdateBytes
+func (s *SignedUpdate) GetUpdate() (Update, error) {
+	var update Update
+	err := json.Unmarshal(s.UpdateBytes, &update)
+	return update, err
+}
+
+func SignUpdate(update Update, privateKey ed25519.PrivateKey) (SignedUpdate, error) {
+	updateJSON, err := json.Marshal(update)
 	if err != nil {
-		return false
+		return SignedUpdate{}, fmt.Errorf("failed to marshal update: %w", err)
 	}
-	return ed25519.Verify(publicKey, updateJSON, signedUpdate.Signature)
+	signature := ed25519.Sign(privateKey, updateJSON)
+	return SignedUpdate{
+		UpdateBytes: updateJSON,
+		Signature:   signature,
+	}, nil
 }

@@ -38,21 +38,34 @@ func NewStorage(db *database.EndershareDB, aesKey []byte) *Storage {
 
 // AddFile adds a file from local filesystem to encrypted storage
 func (s *Storage) AddFile(localPath string, name string, folderID int) error {
-	size, err := getOriginalFileSize(localPath)
+	_, err := s.AddFileWithEntry(localPath, name, folderID)
+	return err
+}
+
+// AddFileWithEntry adds a file and returns the data entry info for publishing
+func (s *Storage) AddFileWithEntry(localPath string, name string, folderID int) (*database.DataEntry, error) {
+	originalSize, err := getOriginalFileSize(localPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	tempFile := filepath.Join(s.dataDir, "temp_"+name)
 	fileHash, err := streamEncryptFileWithHash(localPath, tempFile, s.aesKey)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	// Get encrypted file size for transfer/sync
+	encryptedSize, err := getOriginalFileSize(tempFile)
+	if err != nil {
+		os.Remove(tempFile)
+		return nil, err
 	}
 
 	finalPath := filepath.Join(s.dataDir, hexEncode(fileHash))
 	if err := os.Rename(tempFile, finalPath); err != nil {
 		os.Remove(tempFile)
-		return err
+		return nil, err
 	}
 
 	now := time.Now()
@@ -61,23 +74,32 @@ func (s *Storage) AddFile(localPath string, name string, folderID int) error {
 		Name:       name,
 		CreatedAt:  now,
 		ModifiedAt: now,
-		Size:       size,
+		Size:       originalSize,
 		FolderID:   folderID,
 	}
 
 	keyJSON, err := json.Marshal(fileEntry)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	encryptedKey, err := crypto.Encrypt(keyJSON, s.aesKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	hash := crypto.ComputeDataHash(encryptedKey, fileHash, size)
+	hash := crypto.ComputeDataHash(encryptedKey, fileHash, encryptedSize)
 
-	return s.db.PutData(encryptedKey, fileHash, size, hash)
+	if err := s.db.PutData(encryptedKey, fileHash, encryptedSize, hash); err != nil {
+		return nil, err
+	}
+
+	return &database.DataEntry{
+		Key:   encryptedKey,
+		Value: fileHash,
+		Size:  encryptedSize,
+		Hash:  hash,
+	}, nil
 }
 
 // GetFile exports a file from encrypted storage to local filesystem
@@ -109,6 +131,12 @@ func (s *Storage) GetFile(name string, folderID int, destPath string) error {
 
 // CreateFolder creates a new folder
 func (s *Storage) CreateFolder(name string, parentFolderID int) (int, error) {
+	folderID, _, err := s.CreateFolderWithEntry(name, parentFolderID)
+	return folderID, err
+}
+
+// CreateFolderWithEntry creates a folder and returns the data entry info for publishing
+func (s *Storage) CreateFolderWithEntry(name string, parentFolderID int) (int, *database.DataEntry, error) {
 	folderID := s.nextFolderID
 	s.nextFolderID++
 
@@ -121,28 +149,39 @@ func (s *Storage) CreateFolder(name string, parentFolderID int) (int, error) {
 
 	keyJSON, err := json.Marshal(folderEntry)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	encryptedKey, err := crypto.Encrypt(keyJSON, s.aesKey)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	hash := crypto.ComputeDataHash(encryptedKey, nil, 0)
 
 	if err := s.db.PutData(encryptedKey, nil, 0, hash); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return folderID, nil
+	return folderID, &database.DataEntry{
+		Key:   encryptedKey,
+		Value: nil,
+		Size:  0,
+		Hash:  hash,
+	}, nil
 }
 
 // DeleteFile removes a file from storage
 func (s *Storage) DeleteFile(name string, folderID int) error {
+	_, err := s.DeleteFileWithEntry(name, folderID)
+	return err
+}
+
+// DeleteFileWithEntry removes a file and returns the data entry info for publishing
+func (s *Storage) DeleteFileWithEntry(name string, folderID int) (*database.DataEntry, error) {
 	entries, err := s.db.GetAllData()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, entry := range entries {
@@ -157,18 +196,32 @@ func (s *Storage) DeleteFile(name string, folderID int) error {
 		}
 
 		if fileEntry.Type == TypeFile && fileEntry.Name == name && fileEntry.FolderID == folderID {
-			return s.db.DeleteData(entry.Key)
+			if err := s.db.DeleteData(entry.Key); err != nil {
+				return nil, err
+			}
+			return &database.DataEntry{
+				Key:   entry.Key,
+				Value: entry.Value,
+				Size:  entry.Size,
+				Hash:  entry.Hash,
+			}, nil
 		}
 	}
 
-	return fmt.Errorf("file not found: %s in folder %d", name, folderID)
+	return nil, fmt.Errorf("file not found: %s in folder %d", name, folderID)
 }
 
 // DeleteFolder removes a folder
 func (s *Storage) DeleteFolder(folderID int) error {
+	_, err := s.DeleteFolderWithEntry(folderID)
+	return err
+}
+
+// DeleteFolderWithEntry removes a folder and returns the data entry info for publishing
+func (s *Storage) DeleteFolderWithEntry(folderID int) (*database.DataEntry, error) {
 	entries, err := s.db.GetAllData()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, entry := range entries {
@@ -183,11 +236,19 @@ func (s *Storage) DeleteFolder(folderID int) error {
 		}
 
 		if folderEntry.Type == TypeFolder && folderEntry.FolderID == folderID {
-			return s.db.DeleteData(entry.Key)
+			if err := s.db.DeleteData(entry.Key); err != nil {
+				return nil, err
+			}
+			return &database.DataEntry{
+				Key:   entry.Key,
+				Value: entry.Value,
+				Size:  entry.Size,
+				Hash:  entry.Hash,
+			}, nil
 		}
 	}
 
-	return fmt.Errorf("folder not found: %d", folderID)
+	return nil, fmt.Errorf("folder not found: %d", folderID)
 }
 
 // ListFolder lists files and folders in a folder
@@ -286,7 +347,7 @@ func (s *Storage) ValidateOrRemoveFile(fileHash []byte) error {
 	if !bytes.Equal(computedHash, fileHash) {
 		f.Close()
 		os.Remove(f.Name())
-		return fmt.Errorf("file hash verification failed")
+		return fmt.Errorf("file hash verification failed expected %s, actual %s", hexEncode(fileHash), hexEncode(computedHash))
 	}
 
 	return nil

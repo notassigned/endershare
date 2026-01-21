@@ -108,12 +108,16 @@ func (c *Core) BindNewPeer(syncPhrase string) error {
 		return fmt.Errorf("only master nodes can bind new peers")
 	}
 
-	// Discover and bind the new peer
+	// Get existing peers to send to the new peer
+	existingPeers := c.db.GetPeers()
+
+	// Discover and bind the new peer, sending them the peer list
 	peerInfo, err := p2p.BindNewPeer(
 		syncPhrase,
 		c.p2pNode,
 		c.keys.MasterPublicKey,
 		c.keys.MasterPrivateKey,
+		existingPeers,
 	)
 	if err != nil {
 		return err
@@ -124,6 +128,9 @@ func (c *Core) BindNewPeer(syncPhrase string) error {
 	if err != nil {
 		return fmt.Errorf("error adding peer to database: %v", err)
 	}
+
+	// Also add to p2pNode's in-memory map
+	c.p2pNode.AddPeer(*peerInfo)
 
 	fmt.Println("Successfully bound peer:", peerInfo.ID)
 
@@ -164,7 +171,19 @@ func (c *Core) bindToMaster() {
 		panic(fmt.Sprintf("Error adding master peer: %v", err))
 	}
 
+	// Store all peers from the received list
+	for _, peerInfo := range clientInfo.PeerList {
+		if err := c.db.AddPeer(peerInfo); err != nil {
+			fmt.Printf("Warning: Failed to add peer %s: %v\n", peerInfo.ID, err)
+		}
+	}
+
+	// Update P2P node's in-memory peer map with all peers (including master)
+	allPeers := append(clientInfo.PeerList, clientInfo.AddrInfo)
+	c.p2pNode.ReplacePeers(allPeers)
+
 	fmt.Println("Successfully bound to master node:", clientInfo.PeerID)
+	fmt.Printf("Received %d peers from network\n", len(clientInfo.PeerList))
 	fmt.Println("Note: This replica node does not have the encryption key and cannot decrypt data")
 }
 
@@ -182,7 +201,7 @@ func coreStartupWithMnemonic(mnemonic string) *Core {
 	}
 
 	ctx := context.Background()
-	p2pNode, err := p2p.NewP2PNode(keys.PeerPrivateKey, ctx, c.db.GetPeers())
+	p2pNode, err := p2p.NewP2PNode(keys.PeerPrivateKey, ctx, c.db.GetPeers(), 13000)
 	if err != nil {
 		panic(fmt.Sprintf("Error starting P2P node: %v", err))
 	}
@@ -197,6 +216,89 @@ func coreStartupWithMnemonic(mnemonic string) *Core {
 // RequestLatestUpdate sends a request to all peers for their latest update
 func (c *Core) RequestLatestUpdate() {
 	c.notify("request_latest_update", nil)
+}
+
+// PublishDataUpdate creates and broadcasts a data update (ADD or DELETE)
+func (c *Core) PublishDataUpdate(action string, key, value []byte, size int64, hash []byte) error {
+	if c.keys.MasterPrivateKey == nil {
+		return fmt.Errorf("only master nodes can publish data updates")
+	}
+
+	// Get current state
+	currentIDStr, err := c.db.GetNodeProperty("current_update_id")
+	if err != nil {
+		currentIDStr = "0"
+	}
+	currentID, _ := strconv.ParseUint(currentIDStr, 10, 64)
+
+	prevDataHashStr, err := c.db.GetNodeProperty("data_hash")
+	if err != nil {
+		prevDataHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	}
+	prevDataHash, _ := base64.StdEncoding.DecodeString(prevDataHashStr)
+
+	prevPeerHashStr, err := c.db.GetNodeProperty("peer_list_hash")
+	if err != nil {
+		prevPeerHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+	}
+	prevPeerHash, _ := base64.StdEncoding.DecodeString(prevPeerHashStr)
+
+	// Create DataUpdate
+	dataUpdate := DataUpdate{
+		Action: action,
+		Key:    key,
+		Value:  value,
+		Size:   size,
+		Hash:   hash,
+	}
+
+	// Apply to local database and merkle tree first
+	switch action {
+	case "ADD", "MODIFY":
+		c.insertData(key, value, size, hash)
+	case "DELETE":
+		c.deleteData(key, hash)
+	}
+	c.updateDataHash()
+
+	// Get new data hash from merkle tree
+	newDataHash := c.merkleTree.GetRootHash()
+
+	// Create update
+	update := Update{
+		UpdateID:         currentID + 1,
+		PeerListHash:     prevPeerHash,
+		PrevPeerListHash: prevPeerHash,
+		DataHash:         newDataHash,
+		PrevDataHash:     prevDataHash,
+		NumBuckets:       c.merkleTree.GetNumBuckets(),
+		UpdateDataType:   "DATA",
+		UpdateData:       dataUpdate,
+		Timestamp:        time.Now().Unix(),
+	}
+
+	// Sign update
+	signedUpdate, err := SignUpdate(update, c.keys.MasterPrivateKey)
+	if err != nil {
+		return fmt.Errorf("failed to sign update: %w", err)
+	}
+
+	// Store update
+	signedUpdateJSON, err := json.Marshal(signedUpdate)
+	if err != nil {
+		return fmt.Errorf("failed to marshal signed update: %w", err)
+	}
+	if err := c.db.InsertSignedUpdate(update.UpdateID, string(signedUpdateJSON)); err != nil {
+		return fmt.Errorf("failed to insert update: %w", err)
+	}
+
+	// Update node state
+	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
+	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(newDataHash))
+	c.db.SetNodeProperty("lastest_update", string(signedUpdateJSON))
+
+	// Broadcast notification
+	return c.notify("update", signedUpdateJSON)
 }
 
 // PublishPeerUpdate creates and broadcasts a peer update (ADD or REMOVE)
@@ -243,15 +345,9 @@ func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) e
 	}
 
 	// Sign entire update JSON
-	updateJSON, err := json.Marshal(update)
+	signedUpdate, err := SignUpdate(update, c.keys.MasterPrivateKey)
 	if err != nil {
-		return fmt.Errorf("failed to marshal update: %w", err)
-	}
-	signature := ed25519.Sign(c.keys.MasterPrivateKey, updateJSON)
-
-	signedUpdate := SignedUpdate{
-		Update:    update,
-		Signature: signature,
+		return fmt.Errorf("failed to sign update: %w", err)
 	}
 
 	// Store update
