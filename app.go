@@ -80,6 +80,13 @@ func (a *App) initializeCore() {
 	if err != nil {
 		fmt.Println("Warning: Failed to initialize core:", err)
 	}
+
+	// Notify frontend when data is synced from another device
+	if a.core != nil {
+		a.core.OnDataUpdated = func() {
+			runtime.EventsEmit(a.ctx, "data-updated")
+		}
+	}
 }
 
 // GetAppState returns the current application state

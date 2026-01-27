@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { EventsOn } from '../../wailsjs/runtime/runtime';
   import {
     ListFolder,
     CreateFolder,
@@ -34,6 +35,7 @@
   let showMnemonicModal = false;
   let showDeleteConfirm = false;
   let itemToDelete: FolderItem | null = null;
+  let unsubscribeDataUpdated: (() => void) | null = null;
 
   $: loadFolder($currentFolderID);
 
@@ -43,6 +45,17 @@
     // Check if we need to show the mnemonic modal
     if ($displayMnemonic) {
       showMnemonicModal = true;
+    }
+
+    // Listen for data updates from other devices
+    unsubscribeDataUpdated = EventsOn('data-updated', () => {
+      loadFolder($currentFolderID);
+    });
+  });
+
+  onDestroy(() => {
+    if (unsubscribeDataUpdated) {
+      unsubscribeDataUpdated();
     }
   });
 

@@ -61,6 +61,11 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 	//Log to db for debug
 	c.db.InsertSignedUpdate(update.UpdateID, string(signedUpdateJSON))
 
+	// Notify UI of data change
+	if c.OnDataUpdated != nil {
+		c.OnDataUpdated()
+	}
+
 	return nil
 }
 

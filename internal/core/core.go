@@ -20,6 +20,7 @@ type Core struct {
 	storage       *storage.Storage
 	merkleTree    *crypto.MerkleTree
 	publishUpdate func([]byte) error
+	OnDataUpdated func() // Called when data is synced from another device
 }
 
 func coreStartup(initMode bool) *Core {
