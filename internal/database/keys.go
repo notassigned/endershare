@@ -5,6 +5,9 @@ import (
 	"encoding/base64"
 	"log"
 
+	libp2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/notassigned/endershare/internal/crypto"
 )
 
@@ -58,6 +61,8 @@ func (db *EndershareDB) GetKeys() *crypto.CryptoKeys {
 	return crypto.NewCryptoKeysFromBytes(mpriv, ppriv, aesKey)
 }
 
+// StoreKeys saves the master private key, peer private key, and AES key into the database
+// StoreKeys also inserts the peer's public key into the peers table
 func (db *EndershareDB) StoreKeys(keys *crypto.CryptoKeys) {
 	masterPrivEnc := base64.StdEncoding.EncodeToString(keys.MasterPrivateKey)
 	peerPrivEnc := base64.StdEncoding.EncodeToString(keys.PeerPrivateKey)
@@ -72,5 +77,35 @@ func (db *EndershareDB) StoreKeys(keys *crypto.CryptoKeys) {
 	_, err := db.db.Exec(insertStmt, masterPrivEnc, peerPrivEnc, aesKeyEnc)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Store master public key
+	if keys.MasterPublicKey != nil {
+		masterPubEnc := base64.StdEncoding.EncodeToString(keys.MasterPublicKey)
+		err = db.SetNodeProperty("master_public_key", masterPubEnc)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Store peer in peers table
+	lpriv, err := libp2pcrypto.UnmarshalEd25519PrivateKey(keys.PeerPrivateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	peerID, err := peer.IDFromPrivateKey(lpriv)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	addrInfo := peer.AddrInfo{
+		ID:    peerID,
+		Addrs: []multiaddr.Multiaddr{},
+	}
+
+	err = db.AddPeer(addrInfo)
+	if err != nil {
+		log.Printf("Warning: Failed to add peer to database: %v", err)
 	}
 }

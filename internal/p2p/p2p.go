@@ -77,8 +77,9 @@ func (p *P2PNode) GetPeerId() peer.ID {
 	return p.host.ID()
 }
 
+// NewStreamToPeer creates a new stream to an authenticated peer
 func (p *P2PNode) NewStreamToPeer(peerID peer.ID, protocolID string) (network.Stream, error) {
-	if p.checkPeerAllowed(peerID) {
+	if !p.checkPeerAllowed(peerID) {
 		return nil, fmt.Errorf("peer not allowed")
 	}
 	stream, err := p.host.NewStream(context.Background(), peerID, protocol.ID(protocolID))
@@ -192,8 +193,12 @@ func (p *P2PNode) ManageConnections(ctx context.Context, key string) {
 	}
 }
 
+// Check if peer is in peers list (returns false if ID is self)
 func (p *P2PNode) checkPeerAllowed(peerID peer.ID) bool {
 	_, exists := p.peers.Load(peerID)
+	if exists && peerID == p.host.ID() {
+		return false
+	}
 	return exists
 }
 

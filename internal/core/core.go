@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
 	"github.com/notassigned/endershare/internal/p2p"
@@ -165,7 +166,7 @@ func NewCoreForBinding(db *database.EndershareDB, keys *crypto.CryptoKeys) (*Cor
 
 // StartBinding starts the binding process for a replica node
 // Returns the 4-word sync phrase and calls onComplete when binding finishes
-func (c *Core) StartBinding(ctx context.Context, onComplete func(masterPubKey []byte)) (string, error) {
+func (c *Core) StartBinding(ctx context.Context, onComplete func(info *p2p.ClientInfo)) (string, error) {
 	clientInfo, phrase, err := p2p.StartBindingService(c.p2pNode, ctx)
 	if err != nil {
 		return "", err
@@ -176,7 +177,7 @@ func (c *Core) StartBinding(ctx context.Context, onComplete func(masterPubKey []
 		select {
 		case info := <-clientInfo:
 			if info != nil && onComplete != nil {
-				onComplete(info.MasterPublicKey)
+				onComplete(info)
 			}
 		case <-ctx.Done():
 			// Cancelled
@@ -192,4 +193,9 @@ func (c *Core) GetPeerStatus(peerID string) (isOnline bool, lastSeen time.Time) 
 		return false, time.Time{}
 	}
 	return c.p2pNode.GetPeerStatus(peerID)
+}
+
+// ReplacePeers updates the P2P node's in-memory peer map
+func (c *Core) ReplacePeers(peers []peer.AddrInfo) {
+	c.p2pNode.ReplacePeers(peers)
 }

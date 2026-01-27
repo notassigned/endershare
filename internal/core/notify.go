@@ -24,7 +24,7 @@ func (c *Core) setupNotifyService(ctx context.Context) error {
 			return
 		}
 		msgContent := buf.Bytes()
-		fmt.Println("Recvd", msgType, ":", string(msgContent))
+		fmt.Println("Recvd", msgType, "from", from, ":\n", string(msgContent))
 
 		switch strings.TrimSpace(msgType) {
 		case "update":
@@ -61,7 +61,7 @@ func (c *Core) handleUpdate(notification []byte, from peer.ID) {
 }
 
 func (c *Core) handleLatestUpdateRequest() {
-	latest, err := c.db.GetNodeProperty("lastest_update")
+	latest, err := c.db.GetNodeProperty("latest_update")
 	if err != nil {
 		return
 	}

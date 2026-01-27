@@ -70,6 +70,7 @@ func NewCryptoKeysFromBytes(masterPriv []byte, peerPriv []byte, aesKey []byte) *
 	}
 }
 
+// Generates Master keypair and AES key from mnemonic and a random peer keypair
 func SetupKeysFromMnemonic(mnemonic string) *CryptoKeys {
 	key, err := scrypt.Key([]byte(mnemonic), []byte("endershare"), 32768, 8, 1, 32)
 	if err != nil {

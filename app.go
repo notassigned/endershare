@@ -11,6 +11,7 @@ import (
 	"github.com/notassigned/endershare/internal/core"
 	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
+	"github.com/notassigned/endershare/internal/p2p"
 	"github.com/notassigned/endershare/internal/storage"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -147,10 +148,27 @@ func (a *App) StartReplicaBinding() (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	a.bindCancel = cancel
 
-	phrase, err := a.core.StartBinding(ctx, func(masterPubKey []byte) {
-		// Callback when binding completes
-		a.keys.MasterPublicKey = masterPubKey
+	phrase, err := a.core.StartBinding(ctx, func(info *p2p.ClientInfo) {
+		// Store master public key
+		a.keys.MasterPublicKey = info.MasterPublicKey
 		a.db.StoreKeys(a.keys)
+
+		// Add master node to peers table
+		if err := a.db.AddPeer(info.AddrInfo); err != nil {
+			fmt.Println("Warning: Failed to add master peer:", err)
+		}
+
+		// Add all peers from the peer list
+		for _, peerInfo := range info.PeerList {
+			if err := a.db.AddPeer(peerInfo); err != nil {
+				fmt.Printf("Warning: Failed to add peer %s: %v\n", peerInfo.ID, err)
+			}
+		}
+
+		// Update P2P node's in-memory peer map
+		allPeers := append(info.PeerList, info.AddrInfo)
+		a.core.ReplacePeers(allPeers)
+
 		a.syncPhrase = ""
 		runtime.EventsEmit(a.ctx, "binding-complete")
 	})

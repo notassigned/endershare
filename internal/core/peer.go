@@ -27,7 +27,7 @@ func getMasterPubKey(db *database.EndershareDB) ed25519.PublicKey {
 	return k
 }
 
-// PeerMain is the unified entry point for all nodes (both master and replica)
+// PeerMain (CLI only) is the unified entry point for all nodes (both master and replica)
 func PeerMain(initMode bool) {
 	var c *Core
 
@@ -82,7 +82,7 @@ func PeerMain(initMode bool) {
 	}
 }
 
-// BindMain is called by a master node to authorize a new replica peer
+// BindMain (CLI only) is called by a master node to authorize a new replica peer
 func BindMain(syncPhrase string) {
 	// Load existing core
 	c := coreStartup(true) // Must be a master node
@@ -295,7 +295,7 @@ func (c *Core) PublishDataUpdate(action string, key, value []byte, size int64, h
 	// Update node state
 	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
 	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(newDataHash))
-	c.db.SetNodeProperty("lastest_update", string(signedUpdateJSON))
+	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
 
 	// Broadcast notification
 	return c.notify("update", signedUpdateJSON)
@@ -362,6 +362,7 @@ func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) e
 	// Update node state
 	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
 	c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(newPeerHash))
+	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
 
 	// Broadcast notification
 	notificationJSON, err := json.Marshal(signedUpdate)
