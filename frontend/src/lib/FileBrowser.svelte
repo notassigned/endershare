@@ -11,8 +11,9 @@
     GetFolderPath,
     IsMaster
   } from '../../wailsjs/go/main/App';
-  import { currentFolderID, showSettings, displayMnemonic, isLoading, errorMessage } from './stores';
+  import { currentFolderID, showSettings, showDashboard, displayMnemonic, isLoading, errorMessage } from './stores';
   import SettingsModal from './SettingsModal.svelte';
+  import NodeDashboard from './NodeDashboard.svelte';
 
   interface FolderItem {
     type: string;
@@ -226,6 +227,9 @@
           <span class="icon">+</span> Add File
         </button>
       {/if}
+      <button class="action-btn" on:click={() => showDashboard.set(true)} title="Node Dashboard">
+        Dashboard
+      </button>
       <button class="action-btn settings" on:click={() => showSettings.set(true)}>
         <span class="icon">⚙</span>
       </button>
@@ -277,6 +281,10 @@
 
 {#if $showSettings}
   <SettingsModal />
+{/if}
+
+{#if $showDashboard}
+  <NodeDashboard />
 {/if}
 
 <!-- Delete confirmation modal -->

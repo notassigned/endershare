@@ -22,7 +22,11 @@ export function GetAppState():Promise<string>;
 
 export function GetFolderPath(arg1:number):Promise<Array<main.PathSegment>>;
 
+export function GetNodeID():Promise<string>;
+
 export function GetPeers():Promise<Array<main.PeerInfo>>;
+
+export function GetStorageStats():Promise<main.StorageStats>;
 
 export function GetSyncPhrase():Promise<string>;
 

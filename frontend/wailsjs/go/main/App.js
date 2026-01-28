@@ -42,8 +42,16 @@ export function GetFolderPath(arg1) {
   return window['go']['main']['App']['GetFolderPath'](arg1);
 }
 
+export function GetNodeID() {
+  return window['go']['main']['App']['GetNodeID']();
+}
+
 export function GetPeers() {
   return window['go']['main']['App']['GetPeers']();
+}
+
+export function GetStorageStats() {
+  return window['go']['main']['App']['GetStorageStats']();
 }
 
 export function GetSyncPhrase() {

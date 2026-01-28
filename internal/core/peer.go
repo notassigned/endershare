@@ -102,6 +102,18 @@ func BindMain(syncPhrase string) {
 	fmt.Println("Successfully bound new peer")
 }
 
+func (c *Core) GetOtherPeerIDs() []string {
+	selfID := c.p2pNode.GetPeerId().String()
+	allPeerIDs := c.db.GetAllPeerIDs()
+	otherPeerIDs := []string{}
+	for _, pid := range allPeerIDs {
+		if pid != selfID {
+			otherPeerIDs = append(otherPeerIDs, pid)
+		}
+	}
+	return otherPeerIDs
+}
+
 // BindNewPeer discovers and authorizes a new replica peer using the sync phrase
 func (c *Core) BindNewPeer(syncPhrase string) error {
 	if c.keys.MasterPrivateKey == nil {

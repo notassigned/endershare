@@ -4,7 +4,7 @@
   import { appState } from './lib/stores';
   import SetupScreen from './lib/SetupScreen.svelte';
   import BindingScreen from './lib/BindingScreen.svelte';
-  import MnemonicEntry from './lib/MnemonicEntry.svelte';
+  import NodeDashboard from './lib/NodeDashboard.svelte';
   import FileBrowser from './lib/FileBrowser.svelte';
 
   onMount(async () => {
@@ -19,7 +19,7 @@
   {:else if $appState === 'binding'}
     <BindingScreen />
   {:else if $appState === 'locked'}
-    <MnemonicEntry />
+    <NodeDashboard fullPage={true} />
   {:else if $appState === 'unlocked'}
     <FileBrowser />
   {:else}

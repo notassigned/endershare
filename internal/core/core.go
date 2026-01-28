@@ -188,6 +188,11 @@ func (c *Core) StartBinding(ctx context.Context, onComplete func(info *p2p.Clien
 	return phrase, nil
 }
 
+// GetNodeID returns this node's peer ID as a string
+func (c *Core) GetNodeID() string {
+	return c.p2pNode.GetPeerId().String()
+}
+
 // GetPeerStatus returns whether a peer is currently connected and when it was last seen
 func (c *Core) GetPeerStatus(peerID string) (isOnline bool, lastSeen time.Time) {
 	if c.p2pNode == nil {

@@ -50,6 +50,20 @@ export namespace main {
 	        this.lastSeen = source["lastSeen"];
 	    }
 	}
+	export class StorageStats {
+	    entryCount: number;
+	    totalSize: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new StorageStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.entryCount = source["entryCount"];
+	        this.totalSize = source["totalSize"];
+	    }
+	}
 
 }
 

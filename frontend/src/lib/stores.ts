@@ -17,3 +17,6 @@ export const errorMessage = writable<string>('');
 
 // Mnemonic to display after vault creation
 export const displayMnemonic = writable<string>('');
+
+// Dashboard modal visibility (reused in FileBrowser)
+export const showDashboard = writable<boolean>(false);

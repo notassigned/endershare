@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { GetPeers, RemovePeer, BindPeerWithPhrase, IsMaster } from '../../wailsjs/go/main/App';
   import { showSettings, isLoading, errorMessage } from './stores';
 
@@ -15,10 +15,16 @@
   let showBindInput = false;
   let showRemoveConfirm = false;
   let peerToRemove: string | null = null;
+  let pollInterval: ReturnType<typeof setInterval>;
 
   onMount(async () => {
     await loadPeers();
     isMaster = await IsMaster();
+    pollInterval = setInterval(loadPeers, 5000);
+  });
+
+  onDestroy(() => {
+    clearInterval(pollInterval);
   });
 
   async function loadPeers() {

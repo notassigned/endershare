@@ -38,6 +38,12 @@ type PeerInfo struct {
 	LastSeen string `json:"lastSeen"`
 }
 
+// StorageStats represents storage statistics for the frontend
+type StorageStats struct {
+	EntryCount int64 `json:"entryCount"`
+	TotalSize  int64 `json:"totalSize"`
+}
+
 // App struct holds application state
 type App struct {
 	ctx          context.Context
@@ -427,9 +433,26 @@ func (a *App) getFolderByID(folderID int) (*storage.FolderEntry, error) {
 	return nil, fmt.Errorf("folder not found: %d", folderID)
 }
 
+// GetStorageStats returns entry count and total size stored on this node
+func (a *App) GetStorageStats() StorageStats {
+	count, size := a.db.GetStorageStats()
+	return StorageStats{EntryCount: count, TotalSize: size}
+}
+
+// GetNodeID returns this node's truncated peer ID
+func (a *App) GetNodeID() string {
+	if a.core == nil {
+		return ""
+	}
+	return truncatePeerID(a.core.GetNodeID())
+}
+
 // GetPeers returns all connected peers with their status
 func (a *App) GetPeers() ([]PeerInfo, error) {
-	peerIDs := a.db.GetAllPeerIDs()
+	if a.core == nil {
+		return []PeerInfo{}, nil
+	}
+	peerIDs := a.core.GetOtherPeerIDs()
 	result := make([]PeerInfo, 0, len(peerIDs))
 
 	for _, peerID := range peerIDs {

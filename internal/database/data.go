@@ -183,13 +183,13 @@ func (db *EndershareDB) DeleteStaleEntries() error {
 
 // SetDownloadProgress updates download progress for a file
 func (db *EndershareDB) SetDownloadProgress(hash []byte, progress int64) error {
-	_, err := db.db.Exec("UPDATE data SET download_progress = ? WHERE hash = ?", progress, hash)
+	_, err := db.db.Exec("UPDATE data SET download_progress = ? WHERE value = ?", progress, hash)
 	return err
 }
 
 // GetDownloadProgress returns download progress for a file (0 if not started, size of the file if complete)
 func (db *EndershareDB) GetDownloadProgress(hash []byte) int64 {
-	rows, err := db.db.Query("SELECT download_progress FROM data WHERE hash = ?", hash)
+	rows, err := db.db.Query("SELECT download_progress FROM data WHERE value = ?", hash)
 	if err != nil {
 		return 0
 	}
@@ -203,6 +203,16 @@ func (db *EndershareDB) GetDownloadProgress(hash []byte) int64 {
 		return progress
 	}
 	return 0
+}
+
+// GetStorageStats returns total entry count and total size in bytes
+func (db *EndershareDB) GetStorageStats() (int64, int64) {
+	var count, totalSize int64
+	row := db.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM data WHERE in_current = 1")
+	if err := row.Scan(&count, &totalSize); err != nil {
+		return 0, 0
+	}
+	return count, totalSize
 }
 
 // computeBucketRange calculates the hash range for a bucket index
