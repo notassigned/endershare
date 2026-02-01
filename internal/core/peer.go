@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -166,7 +164,7 @@ func (c *Core) bindToMaster() {
 	}
 
 	// Store master public key
-	err = c.db.SetNodeProperty("master_public_key", base64.StdEncoding.EncodeToString(clientInfo.MasterPublicKey))
+	err = c.db.SetMasterPublicKey(clientInfo.MasterPublicKey)
 	if err != nil {
 		panic(fmt.Sprintf("Error storing master public key: %v", err))
 	}
@@ -237,23 +235,20 @@ func (c *Core) PublishDataUpdate(action string, key, value []byte, size int64, h
 	}
 
 	// Get current state
-	currentIDStr, err := c.db.GetNodeProperty("current_update_id")
+	currentID, err := c.db.GetCurrentUpdateID()
 	if err != nil {
-		currentIDStr = "0"
+		currentID = 0
 	}
-	currentID, _ := strconv.ParseUint(currentIDStr, 10, 64)
 
-	prevDataHashStr, err := c.db.GetNodeProperty("data_hash")
+	prevDataHash, err := c.db.GetDataRootHash()
 	if err != nil {
-		prevDataHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		prevDataHash = make([]byte, 32)
 	}
-	prevDataHash, _ := base64.StdEncoding.DecodeString(prevDataHashStr)
 
-	prevPeerHashStr, err := c.db.GetNodeProperty("peer_list_hash")
+	prevPeerHash, err := c.db.GetPeerListHash()
 	if err != nil {
-		prevPeerHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		prevPeerHash = make([]byte, 32)
 	}
-	prevPeerHash, _ := base64.StdEncoding.DecodeString(prevPeerHashStr)
 
 	// Create DataUpdate
 	dataUpdate := DataUpdate{
@@ -305,9 +300,9 @@ func (c *Core) PublishDataUpdate(action string, key, value []byte, size int64, h
 	}
 
 	// Update node state
-	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
-	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(newDataHash))
-	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
+	c.db.SetCurrentUpdateID(update.UpdateID)
+	c.db.SetDataRootHash(newDataHash)
+	c.db.SetLatestUpdateJSON(string(signedUpdateJSON))
 
 	// Broadcast notification
 	return c.notify("update", signedUpdateJSON)
@@ -316,23 +311,20 @@ func (c *Core) PublishDataUpdate(action string, key, value []byte, size int64, h
 // PublishPeerUpdate creates and broadcasts a peer update (ADD or REMOVE)
 func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) error {
 	// Get current state
-	currentIDStr, err := c.db.GetNodeProperty("current_update_id")
+	currentID, err := c.db.GetCurrentUpdateID()
 	if err != nil {
-		currentIDStr = "0"
+		currentID = 0
 	}
-	currentID, _ := strconv.ParseUint(currentIDStr, 10, 64)
 
-	prevPeerHashStr, err := c.db.GetNodeProperty("peer_list_hash")
+	prevPeerHash, err := c.db.GetPeerListHash()
 	if err != nil {
-		prevPeerHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		prevPeerHash = make([]byte, 32)
 	}
-	prevPeerHash, _ := base64.StdEncoding.DecodeString(prevPeerHashStr)
 
-	prevDataHashStr, err := c.db.GetNodeProperty("data_hash")
+	prevDataHash, err := c.db.GetDataRootHash()
 	if err != nil {
-		prevDataHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		prevDataHash = make([]byte, 32)
 	}
-	prevDataHash, _ := base64.StdEncoding.DecodeString(prevDataHashStr)
 
 	// Compute new peer list hash
 	newPeerHash := ComputePeerListHash(c.db.GetAllPeerIDs())
@@ -372,9 +364,9 @@ func (c *Core) PublishPeerUpdate(action string, peerID string, addrs []string) e
 	}
 
 	// Update node state
-	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
-	c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(newPeerHash))
-	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
+	c.db.SetCurrentUpdateID(update.UpdateID)
+	c.db.SetPeerListHash(newPeerHash)
+	c.db.SetLatestUpdateJSON(string(signedUpdateJSON))
 
 	// Broadcast notification
 	notificationJSON, err := json.Marshal(signedUpdate)

@@ -2,7 +2,6 @@ package core
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -397,8 +396,7 @@ func (c *Core) deleteData(key, hash []byte) error {
 
 // updateDataHash updates the data_hash node property from the merkle tree root
 func (c *Core) updateDataHash() {
-	rootHash := c.merkleTree.GetRootHash()
-	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(rootHash))
+	c.db.SetDataRootHash(c.merkleTree.GetRootHash())
 }
 
 // downloadFile downloads a file from a peer with resumable support

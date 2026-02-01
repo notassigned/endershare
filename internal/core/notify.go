@@ -61,7 +61,7 @@ func (c *Core) handleUpdate(notification []byte, from peer.ID) {
 }
 
 func (c *Core) handleLatestUpdateRequest() {
-	latest, err := c.db.GetNodeProperty("latest_update")
+	latest, err := c.db.GetLatestUpdateJSON()
 	if err != nil {
 		return
 	}

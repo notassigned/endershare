@@ -12,7 +12,7 @@ import (
 )
 
 func (db *EndershareDB) GetMasterPubKey() (ed25519.PublicKey, error) {
-	key, err := db.GetNodeProperty("master_public_key")
+	key, err := db.getNodeProperty("master_public_key")
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +81,7 @@ func (db *EndershareDB) StoreKeys(keys *crypto.CryptoKeys) {
 
 	// Store master public key
 	if keys.MasterPublicKey != nil {
-		masterPubEnc := base64.StdEncoding.EncodeToString(keys.MasterPublicKey)
-		err = db.SetNodeProperty("master_public_key", masterPubEnc)
+		err = db.SetMasterPublicKey(keys.MasterPublicKey)
 		if err != nil {
 			log.Fatal(err)
 		}

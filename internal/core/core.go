@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"time"
 
@@ -67,7 +66,7 @@ func coreStartup(initMode bool) *Core {
 
 	// Store merkle root in node properties
 	rootHash := core.merkleTree.GetRootHash()
-	core.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(rootHash))
+	core.db.SetDataRootHash(rootHash)
 
 	// Setup sync stream handlers
 	core.setupSyncHandlers()
@@ -77,21 +76,16 @@ func coreStartup(initMode bool) *Core {
 
 // initializeNodeProperties initializes node table properties if they don't exist
 func (c *Core) initializeNodeProperties() {
-	// Initialize current_update_id to 0 if not set
-	if _, err := c.db.GetNodeProperty("current_update_id"); err != nil {
-		c.db.SetNodeProperty("current_update_id", "0")
-	}
+	zeroHash := make([]byte, 32)
 
-	// Initialize peer_list_hash to zero hash if not set
-	if _, err := c.db.GetNodeProperty("peer_list_hash"); err != nil {
-		zeroHash := make([]byte, 32)
-		c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(zeroHash))
+	if _, err := c.db.GetCurrentUpdateID(); err != nil {
+		c.db.SetCurrentUpdateID(0)
 	}
-
-	// Initialize data_hash to zero hash if not set
-	if _, err := c.db.GetNodeProperty("data_hash"); err != nil {
-		zeroHash := make([]byte, 32)
-		c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(zeroHash))
+	if _, err := c.db.GetPeerListHash(); err != nil {
+		c.db.SetPeerListHash(zeroHash)
+	}
+	if _, err := c.db.GetDataRootHash(); err != nil {
+		c.db.SetDataRootHash(zeroHash)
 	}
 }
 

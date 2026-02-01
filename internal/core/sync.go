@@ -2,10 +2,8 @@ package core
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -26,11 +24,10 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 	}
 
 	// 3. Check if we've already processed this update
-	currentIDStr, err := c.db.GetNodeProperty("current_update_id")
+	currentID, err := c.db.GetCurrentUpdateID()
 	if err != nil {
-		currentIDStr = "0"
+		currentID = 0
 	}
-	currentID, _ := strconv.ParseUint(currentIDStr, 10, 64)
 
 	if update.UpdateID <= currentID {
 		return nil
@@ -47,16 +44,16 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 	}
 
 	// 6. Update node state
-	c.db.SetNodeProperty("current_update_id", fmt.Sprintf("%d", update.UpdateID))
-	c.db.SetNodeProperty("peer_list_hash", base64.StdEncoding.EncodeToString(update.PeerListHash))
-	c.db.SetNodeProperty("data_hash", base64.StdEncoding.EncodeToString(update.DataHash))
+	c.db.SetCurrentUpdateID(update.UpdateID)
+	c.db.SetPeerListHash(update.PeerListHash)
+	c.db.SetDataRootHash(update.DataHash)
 
 	// 7. Store update in database
 	signedUpdateJSON, err := json.Marshal(signedUpdate)
 	if err != nil {
 		return fmt.Errorf("failed to marshal signed update: %w", err)
 	}
-	c.db.SetNodeProperty("latest_update", string(signedUpdateJSON))
+	c.db.SetLatestUpdateJSON(string(signedUpdateJSON))
 
 	//Log to db for debug
 	c.db.InsertSignedUpdate(update.UpdateID, string(signedUpdateJSON))
@@ -72,11 +69,10 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 // syncPeerList handles peer list synchronization
 func (c *Core) syncPeerList(update Update, from peer.ID) error {
 	// Get current peer list hash
-	currentHashStr, err := c.db.GetNodeProperty("peer_list_hash")
+	currentHash, err := c.db.GetPeerListHash()
 	if err != nil {
-		currentHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		currentHash = make([]byte, 32)
 	}
-	currentHash, _ := base64.StdEncoding.DecodeString(currentHashStr)
 
 	// Check if peer list hash differs
 	if bytes.Equal(update.PeerListHash, currentHash) {
@@ -179,11 +175,10 @@ func (c *Core) syncPeerListFull(expectedHash []byte, from peer.ID) error {
 // syncData handles data synchronization
 func (c *Core) syncData(update Update, from peer.ID) error {
 	// Get current data hash
-	currentHashStr, err := c.db.GetNodeProperty("data_hash")
+	currentHash, err := c.db.GetDataRootHash()
 	if err != nil {
-		currentHashStr = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		currentHash = make([]byte, 32)
 	}
-	currentHash, _ := base64.StdEncoding.DecodeString(currentHashStr)
 
 	// Check if data hash differs
 	if bytes.Equal(update.DataHash, currentHash) {
