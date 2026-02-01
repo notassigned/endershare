@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/routing"
+	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 	"github.com/notassigned/endershare/internal/safemap"
@@ -44,6 +45,10 @@ func NewP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []pee
 	if err != nil {
 		return nil, err
 	}
+	mgr, err := connmgr.NewConnManager(50, 100)
+	if err != nil {
+		return nil, err
+	}
 	host, err := libp2p.New(
 		libp2p.Identity(lpriv),
 		libp2p.EnableAutoNATv2(),
@@ -51,6 +56,7 @@ func NewP2PNode(peerPrivKey ed25519.PrivateKey, ctx context.Context, peers []pee
 		libp2p.EnableRelayService(relay.WithACL(NewRelayACL(n)), relay.WithInfiniteLimits()),
 		libp2p.DisableMetrics(),
 		libp2p.Security(libp2ptls.ID, libp2ptls.New),
+		libp2p.ConnectionManager(mgr),
 		libp2p.ListenAddrStrings(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
 			fmt.Sprintf("/ip6/::/tcp/%d", port),
 			fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic", port),
