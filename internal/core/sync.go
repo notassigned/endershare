@@ -7,6 +7,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/notassigned/endershare/internal/crypto"
 	"github.com/notassigned/endershare/internal/database"
 )
 
@@ -321,10 +322,64 @@ func (c *Core) syncDataFull(update Update, from peer.ID) error {
 	return nil
 }
 
-// rebuildTreeFromPeer performs a full rebuild when bucket count mismatches
+// rebuildTreeFromPeer performs a full rebuild when bucket count mismatches.
+// Requests all data from the peer and rebuilds the local merkle tree with the peer's bucket count.
 func (c *Core) rebuildTreeFromPeer(numBuckets int, expectedHash []byte, from peer.ID) error {
-	// TODO: Implement full tree rebuild
-	fmt.Println("Warning: Tree rebuild not yet implemented")
+	// Build list of all bucket indices
+	allIndices := make([]int, numBuckets)
+	for i := range allIndices {
+		allIndices[i] = i
+	}
+
+	// Request all data entry hashes from peer
+	peerBucketHashes, err := c.RequestDataBucketHashes(from, allIndices, numBuckets)
+	if err != nil {
+		return err
+	}
+
+	// Collect all peer hashes and determine which are new
+	c.db.MarkAllStale()
+	var hashesToDownload [][]byte
+	var allPeerHashes [][]byte
+
+	for _, bucketIdx := range allIndices {
+		localHashes := c.db.GetBucketHashes(bucketIdx, numBuckets)
+		for _, hash := range peerBucketHashes[bucketIdx] {
+			allPeerHashes = append(allPeerHashes, hash)
+			c.db.MarkHashCurrent(hash)
+			if !containsHash(localHashes, hash) {
+				hashesToDownload = append(hashesToDownload, hash)
+			}
+		}
+	}
+
+	// Download metadata and files for new hashes
+	if len(hashesToDownload) > 0 {
+		metadataList, err := c.RequestMetadata(from, hashesToDownload)
+		if err != nil {
+			return fmt.Errorf("failed to request metadata: %w", err)
+		}
+		for _, metadata := range metadataList {
+			c.db.PutData(metadata.Key, metadata.Value, metadata.Size, metadata.Hash)
+			if metadata.Value != nil {
+				if err := c.downloadFile(from, metadata.Value, metadata.Size); err != nil {
+					fmt.Printf("Warning: failed to download file: %v\n", err)
+				}
+			}
+		}
+	}
+
+	// Delete stale entries
+	c.db.DeleteStaleEntries()
+
+	// Rebuild merkle tree with peer's bucket count
+	c.merkleTree = crypto.NewMerkleTreeWithBuckets(allPeerHashes, numBuckets)
+	c.updateDataHash()
+
+	if !bytes.Equal(c.merkleTree.GetRootHash(), expectedHash) {
+		return fmt.Errorf("merkle root mismatch after rebuild")
+	}
+
 	return nil
 }
 

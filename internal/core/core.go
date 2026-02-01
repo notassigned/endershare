@@ -117,7 +117,7 @@ func NewCore() (*Core, error) {
 	// Start periodic sync in background
 	go func() {
 		c.RequestLatestUpdate()
-		t := time.NewTicker(time.Second * 15)
+		t := time.NewTicker(time.Second * 5)
 		for range t.C {
 			c.RequestLatestUpdate()
 		}

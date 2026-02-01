@@ -99,11 +99,11 @@ func getBucketIndex(hash []byte, numBuckets int) int {
 // Hashes are distributed into buckets based on their value ranges
 func NewMerkleTree(hashes [][]byte) *MerkleTree {
 	numBuckets := calculateNumBuckets(len(hashes))
-	return newMerkleTreeWithBuckets(hashes, numBuckets)
+	return NewMerkleTreeWithBuckets(hashes, numBuckets)
 }
 
 // newMerkleTreeWithBuckets creates a tree with a specific number of buckets
-func newMerkleTreeWithBuckets(hashes [][]byte, numBuckets int) *MerkleTree {
+func NewMerkleTreeWithBuckets(hashes [][]byte, numBuckets int) *MerkleTree {
 	if numBuckets < 1 {
 		numBuckets = 1
 	}
@@ -313,7 +313,7 @@ func (mt *MerkleTree) rebuild() {
 	newNumBuckets := calculateNumBuckets(len(allHashes))
 
 	// Rebuild tree with new bucket count
-	newTree := newMerkleTreeWithBuckets(allHashes, newNumBuckets)
+	newTree := NewMerkleTreeWithBuckets(allHashes, newNumBuckets)
 	mt.Buckets = newTree.Buckets
 	mt.NumBuckets = newTree.NumBuckets
 	mt.Root = newTree.Root
