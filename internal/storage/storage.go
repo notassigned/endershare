@@ -36,6 +36,12 @@ func NewStorage(db *database.EndershareDB, aesKey []byte) *Storage {
 	return s
 }
 
+// ReloadNextFolderID rescans the database to update the folder ID counter.
+// Must be called after syncing data from other devices.
+func (s *Storage) ReloadNextFolderID() {
+	s.nextFolderID = loadNextFolderID(s.db, s.aesKey)
+}
+
 // AddFile adds a file from local filesystem to encrypted storage
 func (s *Storage) AddFile(localPath string, name string, folderID int) error {
 	_, err := s.AddFileWithEntry(localPath, name, folderID)

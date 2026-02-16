@@ -75,7 +75,7 @@
     font-weight: 600;
     padding: 1.5rem 2rem;
     background: #2a2a2a;
-    border-radius: 8px;
+    border-radius: 0;
     letter-spacing: 0.1em;
     margin-bottom: 2rem;
     font-family: monospace;
@@ -105,7 +105,7 @@
     background: #3a3a3a;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 1rem;
   }

@@ -88,10 +88,9 @@
     padding: 1rem;
     background: #2a2a2a;
     border: 1px solid #3a3a3a;
-    border-radius: 8px;
+    border-radius: 0;
     color: white;
     font-size: 1rem;
-    font-family: monospace;
     resize: none;
     margin-bottom: 1.5rem;
   }
@@ -110,7 +109,7 @@
     background: #4a9eff;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 1rem;
     font-weight: 600;

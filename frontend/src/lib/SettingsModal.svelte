@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { GetPeers, RemovePeer, BindPeerWithPhrase, IsMaster } from '../../wailsjs/go/main/App';
   import { showSettings, isLoading, errorMessage } from './stores';
+  import computerIcon from '../assets/images/computer.png';
 
   interface PeerInfo {
     peerId: string;
@@ -111,6 +112,7 @@
           {#each peers as peer}
             <div class="peer-item">
               <div class="peer-info">
+                <img class="peer-icon" src={computerIcon} alt="device" />
                 <span class="status-dot" class:online={peer.isOnline}></span>
                 <span class="peer-id">{peer.peerId}</span>
               </div>
@@ -202,7 +204,7 @@
 
   .modal {
     background: #2a2a2a;
-    border-radius: 12px;
+    border-radius: 0;
     padding: 1.5rem;
     max-width: 500px;
     width: 90%;
@@ -267,13 +269,19 @@
     align-items: center;
     padding: 0.75rem 1rem;
     background: #1a1a1a;
-    border-radius: 6px;
+    border-radius: 0;
   }
 
   .peer-info {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  .peer-icon {
+    width: 20px;
+    height: 20px;
+    image-rendering: pixelated;
   }
 
   .status-dot {
@@ -288,7 +296,6 @@
   }
 
   .peer-id {
-    font-family: monospace;
     font-size: 0.9rem;
   }
 
@@ -329,9 +336,8 @@
     padding: 0.5rem 0.75rem;
     background: #1a1a1a;
     border: 1px solid #3a3a3a;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
-    font-family: monospace;
   }
 
   .bind-input:focus {
@@ -343,7 +349,7 @@
     padding: 0.5rem 1rem;
     background: #4a9eff;
     border: none;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
     cursor: pointer;
   }
@@ -369,7 +375,7 @@
     padding: 0.75rem 1rem;
     background: #3a3a3a;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     color: white;
     cursor: pointer;
     width: 100%;
@@ -404,7 +410,7 @@
 
   .confirm-modal {
     background: #2a2a2a;
-    border-radius: 12px;
+    border-radius: 0;
     padding: 1.5rem;
     max-width: 400px;
     width: 90%;
@@ -432,7 +438,7 @@
     background: #3a3a3a;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 0.9rem;
   }
@@ -446,7 +452,7 @@
     background: #dc2626;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 0.9rem;
   }

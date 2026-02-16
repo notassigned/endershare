@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { GetPeers, GetStorageStats, GetNodeID, UnlockWithMnemonic } from '../../wailsjs/go/main/App';
   import { appState, showDashboard, isLoading, errorMessage } from './stores';
+  import computerIcon from '../assets/images/computer.png';
 
   // When true, renders as full-page (locked state). When false, renders as modal content.
   export let fullPage = false;
@@ -151,6 +152,7 @@
             {#each peers as peer}
               <div class="peer-item">
                 <div class="peer-info">
+                  <img class="peer-icon" src={computerIcon} alt="device" />
                   <span class="status-dot" class:online={peer.isOnline}></span>
                   <span class="peer-id">{peer.peerId}</span>
                 </div>
@@ -211,6 +213,7 @@
             {#each peers as peer}
               <div class="peer-item">
                 <div class="peer-info">
+                  <img class="peer-icon" src={computerIcon} alt="device" />
                   <span class="status-dot" class:online={peer.isOnline}></span>
                   <span class="peer-id">{peer.peerId}</span>
                 </div>
@@ -262,9 +265,8 @@
     padding: 0.5rem 0.75rem;
     background: #1a1a1a;
     border: 1px solid #3a3a3a;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
-    font-family: monospace;
     font-size: 0.85rem;
     width: 300px;
   }
@@ -279,7 +281,7 @@
     background: #4a9eff;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 0;
     cursor: pointer;
     font-weight: 600;
     white-space: nowrap;
@@ -299,7 +301,7 @@
     background: #3a3a3a;
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: 0;
     cursor: pointer;
     white-space: nowrap;
   }
@@ -322,7 +324,7 @@
     margin-bottom: 1.5rem;
     padding: 0.75rem 1rem;
     background: #2a2a2a;
-    border-radius: 6px;
+    border-radius: 0;
   }
 
   .modal .node-id-section {
@@ -337,7 +339,6 @@
   }
 
   .node-id-value {
-    font-family: monospace;
     font-size: 0.9rem;
     color: #ccc;
   }
@@ -351,7 +352,7 @@
   .stat-card {
     flex: 1;
     background: #2a2a2a;
-    border-radius: 8px;
+    border-radius: 0;
     padding: 1.25rem;
     display: flex;
     flex-direction: column;
@@ -401,7 +402,7 @@
     align-items: center;
     padding: 0.75rem 1rem;
     background: #2a2a2a;
-    border-radius: 6px;
+    border-radius: 0;
   }
 
   /* In modal mode, peer items need darker bg */
@@ -413,6 +414,12 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+  }
+
+  .peer-icon {
+    width: 20px;
+    height: 20px;
+    image-rendering: pixelated;
   }
 
   .status-dot {
@@ -427,7 +434,6 @@
   }
 
   .peer-id {
-    font-family: monospace;
     font-size: 0.9rem;
   }
 
@@ -469,7 +475,7 @@
 
   .modal {
     background: #2a2a2a;
-    border-radius: 12px;
+    border-radius: 0;
     padding: 1.5rem;
     max-width: 500px;
     width: 90%;

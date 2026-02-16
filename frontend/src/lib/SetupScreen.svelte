@@ -84,16 +84,14 @@
     flex-direction: column;
     padding: 1.25rem;
     border: none;
-    border-radius: 8px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 1rem;
     font-weight: 600;
-    transition: transform 0.1s, box-shadow 0.1s;
   }
 
   .setup-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    filter: brightness(1.15);
   }
 
   .setup-btn:disabled {

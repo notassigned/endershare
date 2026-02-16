@@ -14,6 +14,8 @@
   import { currentFolderID, showSettings, showDashboard, displayMnemonic, isLoading, errorMessage } from './stores';
   import SettingsModal from './SettingsModal.svelte';
   import NodeDashboard from './NodeDashboard.svelte';
+  import folderIcon from '../assets/images/directory.png';
+  import fileIcon from '../assets/images/file.png';
 
   interface FolderItem {
     type: string;
@@ -201,7 +203,7 @@
             class:current={i === pathSegments.length - 1}
             on:click={() => navigateToFolder(segment.folderId)}
           >
-            {segment.name}
+            {segment.folderId === 0 ? 'Home' : segment.name}
           </button>
         {/each}
       </div>
@@ -221,7 +223,7 @@
         <button class="action-btn" on:click={() => { showNewFolderInput = false; newFolderName = ''; }}>Cancel</button>
       {:else}
         <button class="action-btn" on:click={() => showNewFolderInput = true}>
-          <span class="icon">📁</span> New Folder
+          New Folder
         </button>
         <button class="action-btn" on:click={handleAddFile}>
           <span class="icon">+</span> Add File
@@ -231,7 +233,7 @@
         Dashboard
       </button>
       <button class="action-btn settings" on:click={() => showSettings.set(true)}>
-        <span class="icon">⚙</span>
+        Settings
       </button>
     </div>
   </div>
@@ -248,21 +250,19 @@
         <div
           class="file-item"
           class:folder={item.type === 'folder'}
-          on:dblclick={() => handleItemClick(item)}
+          on:click={() => handleItemClick(item)}
         >
-          <span class="item-icon">
-            {item.type === 'folder' ? '📁' : '📄'}
-          </span>
+          <img class="item-icon" src={item.type === 'folder' ? folderIcon : fileIcon} alt={item.type} />
           <span class="item-name">{item.name}</span>
           <span class="item-size">{formatSize(item.size)}</span>
           <span class="item-date">{formatDate(item.modifiedAt)}</span>
           <div class="item-actions">
             {#if item.type === 'file'}
-              <button class="item-btn" on:click={() => handleExport(item)} title="Export">
+              <button class="item-btn" on:click|stopPropagation={() => handleExport(item)} title="Export">
                 ↓
               </button>
             {/if}
-            <button class="item-btn delete" on:click={() => confirmDelete(item)} title="Delete">
+            <button class="item-btn delete" on:click|stopPropagation={() => confirmDelete(item)} title="Delete">
               ✕
             </button>
           </div>
@@ -348,7 +348,7 @@
     padding: 0.5rem 0.75rem;
     background: #3a3a3a;
     border: none;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
     cursor: pointer;
   }
@@ -379,7 +379,7 @@
     color: #888;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
-    border-radius: 4px;
+    border-radius: 0;
   }
 
   .path-segment:hover {
@@ -401,7 +401,7 @@
     padding: 0.5rem 1rem;
     background: #3a3a3a;
     border: none;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
     cursor: pointer;
     display: flex;
@@ -413,21 +413,13 @@
     background: #4a4a4a;
   }
 
-  .action-btn.settings {
-    padding: 0.5rem 0.75rem;
-  }
-
   .folder-input {
     padding: 0.5rem;
     background: #1a1a1a;
     border: 1px solid #4a4a4a;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
     width: 150px;
-  }
-
-  .icon {
-    font-size: 1rem;
   }
 
   .file-list {
@@ -454,9 +446,10 @@
     display: flex;
     align-items: center;
     padding: 0.75rem 1rem;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     gap: 0.75rem;
+    user-select: none;
   }
 
   .file-item:hover {
@@ -464,11 +457,14 @@
   }
 
   .item-icon {
-    font-size: 1.25rem;
+    width: 20px;
+    height: 20px;
+    image-rendering: pixelated;
   }
 
   .item-name {
     flex: 1;
+    user-select: none;
   }
 
   .item-size, .item-date {
@@ -481,18 +477,20 @@
     display: flex;
     gap: 0.25rem;
     opacity: 0;
+    pointer-events: none;
     transition: opacity 0.15s;
   }
 
   .file-item:hover .item-actions {
     opacity: 1;
+    pointer-events: auto;
   }
 
   .item-btn {
     padding: 0.25rem 0.5rem;
     background: #3a3a3a;
     border: none;
-    border-radius: 4px;
+    border-radius: 0;
     color: white;
     cursor: pointer;
     font-size: 0.8rem;
@@ -538,7 +536,7 @@
 
   .modal {
     background: #2a2a2a;
-    border-radius: 12px;
+    border-radius: 0;
     padding: 2rem;
     max-width: 500px;
     width: 90%;
@@ -557,7 +555,7 @@
   .mnemonic-display {
     background: #1a1a1a;
     padding: 1.5rem;
-    border-radius: 8px;
+    border-radius: 0;
     font-family: monospace;
     font-size: 1rem;
     line-height: 1.6;
@@ -576,7 +574,7 @@
     background: #4a9eff;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 1rem;
     font-weight: 600;
@@ -610,7 +608,7 @@
     background: #3a3a3a;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 0.9rem;
   }
@@ -624,7 +622,7 @@
     background: #dc2626;
     color: white;
     border: none;
-    border-radius: 6px;
+    border-radius: 0;
     cursor: pointer;
     font-size: 0.9rem;
   }
