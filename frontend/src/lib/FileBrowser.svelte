@@ -312,7 +312,7 @@
       <div class="mnemonic-display">
         {$displayMnemonic}
       </div>
-      <p class="caution">
+      <p class="warning">
         Anyone with this phrase can access your files. Never share it.
       </p>
       <button class="primary-btn" on:click={closeMnemonicModal}>
@@ -561,12 +561,6 @@
     line-height: 1.6;
     margin-bottom: 1rem;
     word-break: break-word;
-  }
-
-  .caution {
-    color: #888;
-    font-size: 0.85rem;
-    margin-bottom: 1.5rem;
   }
 
   .primary-btn {

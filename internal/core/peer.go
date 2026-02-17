@@ -259,12 +259,12 @@ func (c *Core) PublishDataUpdate(action string, key, value []byte, size int64, h
 		Hash:   hash,
 	}
 
-	// Apply to local database and merkle tree first
+	// Update merkle tree (data is already in DB from the storage layer)
 	switch action {
 	case "ADD", "MODIFY":
-		c.insertData(key, value, size, hash)
+		c.merkleTree.Insert(hash)
 	case "DELETE":
-		c.deleteData(key, hash)
+		c.merkleTree.Delete(hash)
 	}
 	c.updateDataHash()
 
