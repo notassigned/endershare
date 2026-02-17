@@ -20,6 +20,54 @@ func (db *EndershareDB) PutData(key []byte, value []byte, size int64, hash []byt
 	return err
 }
 
+func (db *EndershareDB) PutDataWithTag(key []byte, value []byte, size int64, hash []byte, folderTag []byte) error {
+	_, err := db.db.Exec("INSERT OR REPLACE INTO data (key, value, size, hash, folder_tag) VALUES (?, ?, ?, ?, ?)", key, value, size, hash, folderTag)
+	return err
+}
+
+func (db *EndershareDB) SetFolderTag(key []byte, folderTag []byte) error {
+	_, err := db.db.Exec("UPDATE data SET folder_tag = ? WHERE key = ?", folderTag, key)
+	return err
+}
+
+// GetDataByFolderTag returns entries matching a folder tag for fast folder listing
+func (db *EndershareDB) GetDataByFolderTag(folderTag []byte) ([]DataEntry, error) {
+	rows, err := db.db.Query("SELECT key, value, size, hash FROM data WHERE folder_tag = ?", folderTag)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []DataEntry
+	for rows.Next() {
+		var entry DataEntry
+		if err := rows.Scan(&entry.Key, &entry.Value, &entry.Size, &entry.Hash); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// GetDataWithNullFolderTag returns entries that don't have a folder_tag set yet
+func (db *EndershareDB) GetDataWithNullFolderTag() ([]DataEntry, error) {
+	rows, err := db.db.Query("SELECT key, value, size, hash FROM data WHERE folder_tag IS NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []DataEntry
+	for rows.Next() {
+		var entry DataEntry
+		if err := rows.Scan(&entry.Key, &entry.Value, &entry.Size, &entry.Hash); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
 func (db *EndershareDB) GetData(key []byte) ([]byte, error) {
 	rows, err := db.db.Query("SELECT value FROM data WHERE key = ?", key)
 	if err != nil {

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"os"
@@ -9,6 +10,14 @@ import (
 	"github.com/notassigned/endershare/internal/database"
 	"lukechampine.com/blake3"
 )
+
+// computeFolderTag produces a keyed hash of folderID using the AES key.
+// Used as an indexed column so folder contents can be queried without decrypting every row.
+func computeFolderTag(folderID int, aesKey []byte) []byte {
+	h := blake3.New(32, aesKey)
+	binary.Write(h, binary.BigEndian, int64(folderID))
+	return h.Sum(nil)
+}
 
 // streamEncryptFileWithHash encrypts a file and returns the hash of the encrypted content
 func streamEncryptFileWithHash(srcPath, destPath string, key []byte) ([]byte, error) {

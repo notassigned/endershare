@@ -55,6 +55,7 @@ func coreStartup(initMode bool) *Core {
 	// Storage might not have AES key yet for replica nodes - will be set after binding
 	if keys.AESKey != nil {
 		core.storage = storage.NewStorage(core.db, keys.AESKey)
+		core.storage.BackfillFolderTags()
 	}
 
 	// Initialize node table properties if not set

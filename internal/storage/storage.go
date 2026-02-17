@@ -42,6 +42,41 @@ func (s *Storage) ReloadNextFolderID() {
 	s.nextFolderID = loadNextFolderID(s.db, s.aesKey)
 }
 
+// BackfillFolderTags computes folder_tag for any entries missing it (e.g. after sync).
+// Only works when the AES key is available.
+func (s *Storage) BackfillFolderTags() {
+	entries, err := s.db.GetDataWithNullFolderTag()
+	if err != nil || len(entries) == 0 {
+		return
+	}
+
+	for _, entry := range entries {
+		decryptedKey, err := crypto.Decrypt(entry.Key, s.aesKey)
+		if err != nil {
+			continue
+		}
+
+		var parentFolder int = -1
+
+		var fileEntry FileEntry
+		if err := json.Unmarshal(decryptedKey, &fileEntry); err == nil && fileEntry.Type == TypeFile {
+			parentFolder = fileEntry.FolderID
+		}
+
+		if parentFolder == -1 {
+			var folderEntry FolderEntry
+			if err := json.Unmarshal(decryptedKey, &folderEntry); err == nil && folderEntry.Type == TypeFolder {
+				parentFolder = folderEntry.ParentFolderID
+			}
+		}
+
+		if parentFolder >= 0 {
+			tag := computeFolderTag(parentFolder, s.aesKey)
+			s.db.SetFolderTag(entry.Key, tag)
+		}
+	}
+}
+
 // AddFile adds a file from local filesystem to encrypted storage
 func (s *Storage) AddFile(localPath string, name string, folderID int) error {
 	_, err := s.AddFileWithEntry(localPath, name, folderID)
@@ -95,8 +130,9 @@ func (s *Storage) AddFileWithEntry(localPath string, name string, folderID int) 
 	}
 
 	hash := crypto.ComputeDataHash(encryptedKey, fileHash, encryptedSize)
+	folderTag := computeFolderTag(folderID, s.aesKey)
 
-	if err := s.db.PutData(encryptedKey, fileHash, encryptedSize, hash); err != nil {
+	if err := s.db.PutDataWithTag(encryptedKey, fileHash, encryptedSize, hash, folderTag); err != nil {
 		return nil, err
 	}
 
@@ -164,8 +200,9 @@ func (s *Storage) CreateFolderWithEntry(name string, parentFolderID int) (int, *
 	}
 
 	hash := crypto.ComputeDataHash(encryptedKey, nil, 0)
+	folderTag := computeFolderTag(parentFolderID, s.aesKey)
 
-	if err := s.db.PutData(encryptedKey, nil, 0, hash); err != nil {
+	if err := s.db.PutDataWithTag(encryptedKey, nil, 0, hash, folderTag); err != nil {
 		return 0, nil, err
 	}
 
@@ -257,15 +294,15 @@ func (s *Storage) DeleteFolderWithEntry(folderID int) (*database.DataEntry, erro
 	return nil, fmt.Errorf("folder not found: %d", folderID)
 }
 
-// ListFolder lists files and folders in a folder
+// ListFolder lists files and folders in a folder using the indexed folder_tag column
 func (s *Storage) ListFolder(folderID int) ([]interface{}, error) {
-	entries, err := s.db.GetAllData()
+	tag := computeFolderTag(folderID, s.aesKey)
+	entries, err := s.db.GetDataByFolderTag(tag)
 	if err != nil {
 		return nil, err
 	}
 
 	var results []interface{}
-
 	for _, entry := range entries {
 		decryptedKey, err := crypto.Decrypt(entry.Key, s.aesKey)
 		if err != nil {
@@ -273,18 +310,14 @@ func (s *Storage) ListFolder(folderID int) ([]interface{}, error) {
 		}
 
 		var fileEntry FileEntry
-		if err := json.Unmarshal(decryptedKey, &fileEntry); err == nil {
-			if fileEntry.Type == TypeFile && fileEntry.FolderID == folderID {
-				results = append(results, fileEntry)
-				continue
-			}
+		if err := json.Unmarshal(decryptedKey, &fileEntry); err == nil && fileEntry.Type == TypeFile {
+			results = append(results, fileEntry)
+			continue
 		}
 
 		var folderEntry FolderEntry
-		if err := json.Unmarshal(decryptedKey, &folderEntry); err == nil {
-			if folderEntry.Type == TypeFolder && folderEntry.ParentFolderID == folderID {
-				results = append(results, folderEntry)
-			}
+		if err := json.Unmarshal(decryptedKey, &folderEntry); err == nil && folderEntry.Type == TypeFolder {
+			results = append(results, folderEntry)
 		}
 	}
 

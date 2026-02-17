@@ -30,9 +30,11 @@ func Create() *EndershareDB {
 		size INTEGER NOT NULL,
 		hash BLOB NOT NULL,
 		in_current BOOLEAN DEFAULT 1,
-		download_progress INTEGER DEFAULT 0
+		download_progress INTEGER DEFAULT 0,
+		folder_tag BLOB NULL
     );
 	CREATE INDEX IF NOT EXISTS idx_data_hash ON data(hash);
+	CREATE INDEX IF NOT EXISTS idx_data_folder_tag ON data(folder_tag);
 	CREATE TABLE IF NOT EXISTS peers (
 		peer_id TEXT PRIMARY KEY,
 		addrs TEXT NULL

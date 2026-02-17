@@ -59,9 +59,10 @@ func (c *Core) processUpdate(signedUpdate SignedUpdate, from peer.ID) error {
 	//Log to db for debug
 	c.db.InsertSignedUpdate(update.UpdateID, string(signedUpdateJSON))
 
-	// Reload folder ID counter so new folders don't collide with synced ones
+	// Update storage state after sync
 	if c.storage != nil {
 		c.storage.ReloadNextFolderID()
+		c.storage.BackfillFolderTags()
 	}
 
 	// Notify UI of data change
